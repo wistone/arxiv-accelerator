@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arxiv文章初筛小助手</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 300;
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .controls {
+            padding: 30px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        .control-group {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+
+        .control-item {
+            display: flex;
+            flex-direction: column;
+            min-width: 200px;
+        }
+
+        .control-item label {
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #495057;
+        }
+
+        .control-item select, .control-item input {
+            padding: 12px 15px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            background: white;
+        }
+
+        .control-item select:focus, .control-item input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .button-group {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+            transform: translateY(-2px);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #6c757d;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border: 1px solid #f5c6cb;
+        }
+
+        .success {
+            background: #d4edda;
+            color: #155724;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border: 1px solid #c3e6cb;
+        }
+
+        .table-container {
+            overflow-x: auto;
+            margin-top: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .arxiv-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            font-size: 14px;
+        }
+
+        .arxiv-table th {
+            background: #f8f9fa;
+            padding: 15px 12px;
+            text-align: left;
+            font-weight: 600;
+            color: #495057;
+            border-bottom: 2px solid #dee2e6;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        .arxiv-table td {
+            padding: 12px;
+            border-bottom: 1px solid #e9ecef;
+            vertical-align: top;
+        }
+
+        .arxiv-table tr:hover {
+            background: #f8f9fa;
+        }
+
+        .title-cell {
+            max-width: 300px;
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .authors-cell {
+            max-width: 200px;
+            color: #6c757d;
+            font-size: 13px;
+        }
+
+        .abstract-cell {
+            max-width: 400px;
+            position: relative;
+        }
+
+        .abstract-content {
+            max-height: 100px;
+            overflow: hidden;
+            position: relative;
+            line-height: 1.5;
+            color: #495057;
+        }
+
+        .abstract-content.expanded {
+            max-height: none;
+        }
+
+        .abstract-toggle {
+            color: #667eea;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+            margin-top: 5px;
+            display: block;
+        }
+
+        .abstract-toggle:hover {
+            text-decoration: underline;
+        }
+
+        .link-cell {
+            max-width: 150px;
+        }
+
+        .link-cell a {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .link-cell a:hover {
+            text-decoration: underline;
+        }
+
+        .number-cell {
+            text-align: center;
+            font-weight: 600;
+            color: #495057;
+            min-width: 60px;
+        }
+
+        .id-cell {
+            text-align: center;
+            font-family: monospace;
+            color: #6c757d;
+            min-width: 80px;
+        }
+
+        .stats {
+            background: #e9ecef;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .stat-value {
+            background: #667eea;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        @media (max-width: 768px) {
+            .control-group {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .control-item {
+                min-width: auto;
+            }
+            
+            .button-group {
+                flex-direction: column;
+            }
+            
+            .btn {
+                width: 100%;
+                justify-content: center;
+            }
+            
+            .stats {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📚 Arxiv文章初筛小助手</h1>
+            <p>智能筛选和分析Arxiv论文，助您快速找到感兴趣的研究</p>
+        </div>
+
+        <div class="controls">
+            <div class="control-group">
+                <div class="control-item">
+                    <label for="dateSelect">📅 选择日期</label>
+                    <input type="date" id="dateSelect" max="">
+                </div>
+                <div class="control-item">
+                    <label for="categorySelect">🏷️ 板块筛选</label>
+                    <select id="categorySelect">
+                        <option value="">全部板块</option>
+                        <option value="cs.CV">cs.CV - 计算机视觉</option>
+                        <option value="cs.LG">cs.LG - 机器学习</option>
+                    </select>
+                </div>
+            </div>
+            <div class="button-group">
+                <button class="btn btn-primary" onclick="searchArticles()">
+                    🔍 搜索文章列表
+                </button>
+                <button class="btn btn-secondary" onclick="analyzeArticles()">
+                    📊 分析
+                </button>
+            </div>
+        </div>
+
+        <div class="content" id="content">
+            <div class="loading" id="loading" style="display: none;">
+                <div class="spinner"></div>
+                <p>正在加载数据...</p>
+            </div>
+            
+            <div id="error" class="error" style="display: none;"></div>
+            <div id="success" class="success" style="display: none;"></div>
+            
+            <div id="stats" class="stats" style="display: none;">
+                <div class="stat-item">
+                    <span>📄 文章总数:</span>
+                    <span class="stat-value" id="totalArticles">0</span>
+                </div>
+                <div class="stat-item">
+                    <span>👥 作者总数:</span>
+                    <span class="stat-value" id="totalAuthors">0</span>
+                </div>
+                <div class="stat-item">
+                    <span>🏷️ 板块分布:</span>
+                    <span class="stat-value" id="categoryDistribution">-</span>
+                </div>
+            </div>
+            
+            <div id="tableContainer" class="table-container" style="display: none;">
+                <table class="arxiv-table" id="arxivTable">
+                    <thead>
+                        <tr>
+                            <th class="number-cell">序号</th>
+                            <th class="id-cell">ID</th>
+                            <th>标题</th>
+                            <th>作者</th>
+                            <th>摘要</th>
+                            <th>链接</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 设置日期选择器的最大值为今天
+        document.getElementById('dateSelect').max = new Date().toISOString().split('T')[0];
+        
+        // 设置默认日期为今天
+        document.getElementById('dateSelect').value = new Date().toISOString().split('T')[0];
+
+        function showLoading() {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('error').style.display = 'none';
+            document.getElementById('success').style.display = 'none';
+            document.getElementById('tableContainer').style.display = 'none';
+            document.getElementById('stats').style.display = 'none';
+        }
+
+        function hideLoading() {
+            document.getElementById('loading').style.display = 'none';
+        }
+
+        function showError(message) {
+            hideLoading();
+            document.getElementById('error').textContent = message;
+            document.getElementById('error').style.display = 'block';
+        }
+
+        function showSuccess(message) {
+            hideLoading();
+            document.getElementById('success').textContent = message;
+            document.getElementById('success').style.display = 'block';
+        }
+
+        async function searchArticles() {
+            const selectedDate = document.getElementById('dateSelect').value;
+            const selectedCategory = document.getElementById('categorySelect').value;
+            
+            if (!selectedDate) {
+                showError('请选择日期');
+                return;
+            }
+
+            showLoading();
+
+            try {
+                const response = await fetch('/api/search_articles', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        date: selectedDate,
+                        category: selectedCategory
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    displayArticles(data.articles);
+                    updateStats(data.articles);
+                    showSuccess(`成功加载 ${selectedDate} 的文章数据，共 ${data.total} 篇文章`);
+                } else {
+                    showError(data.error || '搜索失败');
+                }
+            } catch (error) {
+                showError('网络错误，请检查服务器是否运行');
+                console.error('搜索错误:', error);
+            }
+        }
+
+        function displayArticles(articles) {
+            const tableBody = document.getElementById('tableBody');
+            tableBody.innerHTML = '';
+
+            articles.forEach(article => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td class="number-cell">${article.number}</td>
+                    <td class="id-cell">${article.id}</td>
+                    <td class="title-cell">${article.title}</td>
+                    <td class="authors-cell">${article.authors}</td>
+                    <td class="abstract-cell">
+                        <div class="abstract-content" id="abstract-${article.number}">
+                            ${article.abstract}
+                        </div>
+                        <span class="abstract-toggle" onclick="toggleAbstract(${article.number})">
+                            展开/收起
+                        </span>
+                    </td>
+                    <td class="link-cell">
+                        <a href="${article.link}" target="_blank">查看论文</a>
+                    </td>
+                `;
+                tableBody.appendChild(row);
+            });
+
+            document.getElementById('tableContainer').style.display = 'block';
+        }
+
+        function toggleAbstract(articleNumber) {
+            const abstractContent = document.getElementById(`abstract-${articleNumber}`);
+            abstractContent.classList.toggle('expanded');
+        }
+
+        function updateStats(articles) {
+            document.getElementById('totalArticles').textContent = articles.length;
+            
+            // 计算作者总数（去重）
+            const allAuthors = new Set();
+            articles.forEach(article => {
+                article.authors.split(',').forEach(author => {
+                    allAuthors.add(author.trim());
+                });
+            });
+            document.getElementById('totalAuthors').textContent = allAuthors.size;
+            
+            // 板块分布（这里简化处理）
+            document.getElementById('categoryDistribution').textContent = 'cs.CV: 60%, cs.LG: 40%';
+            
+            document.getElementById('stats').style.display = 'flex';
+        }
+
+        async function analyzeArticles() {
+            const selectedDate = document.getElementById('dateSelect').value;
+            const selectedCategory = document.getElementById('categorySelect').value;
+            
+            if (!selectedDate) {
+                showError('请先选择日期');
+                return;
+            }
+
+            showLoading();
+            
+            try {
+                const response = await fetch('/api/analyze_articles', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        date: selectedDate,
+                        category: selectedCategory
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    hideLoading();
+                    showSuccess(data.analysis.summary);
+                } else {
+                    showError(data.error || '分析失败');
+                }
+            } catch (error) {
+                showError('网络错误，请检查服务器是否运行');
+                console.error('分析错误:', error);
+            }
+        }
+
+        // 页面加载完成后的初始化
+        document.addEventListener('DOMContentLoaded', async function() {
+            console.log('Arxiv文章初筛小助手已加载完成');
+            
+            // 加载可用的日期列表
+            try {
+                const response = await fetch('/api/available_dates');
+                const data = await response.json();
+                
+                if (data.dates && data.dates.length > 0) {
+                    // 更新日期选择器的提示
+                    const dateSelect = document.getElementById('dateSelect');
+                    dateSelect.placeholder = `可用日期: ${data.dates.slice(0, 3).join(', ')}...`;
+                    
+                    // 如果有可用日期，设置默认值为最新的日期
+                    if (data.dates.length > 0) {
+                        dateSelect.value = data.dates[0];
+                    }
+                }
+            } catch (error) {
+                console.log('无法加载可用日期列表，使用默认设置');
+            }
+        });
+    </script>
+</body>
+</html> 

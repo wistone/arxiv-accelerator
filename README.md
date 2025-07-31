@@ -1,10 +1,10 @@
-# arXiv CS.CV 论文爬取工具
+# arXiv 论文爬取工具
 
-这是一个用于爬取arXiv计算机视觉(CS.CV)分类最新论文的Python工具。
+这是一个用于爬取arXiv计算机视觉(CS.CV)和机器学习(CS.LG)分类最新论文的Python工具。
 
 ## 功能特点
 
-- ✅ 爬取指定日期的arXiv CS.CV论文
+- ✅ 爬取指定日期的arXiv论文（支持cs.CV和cs.LG分类）
 - ✅ 自动处理时区差异
 - ✅ 智能URL构建：根据日期自动选择查询策略
 - ✅ 支持历史日期查询（使用日期范围API）
@@ -18,12 +18,14 @@
 ```
 arxiv-accelerator/
 ├── crawl-raw-info.py    # 主要的爬取函数
-├── test_crawl.py        # 测试脚本
+├── test_historical_dates.py  # 测试脚本
 ├── example_usage.py     # 使用示例
 ├── README.md           # 项目说明
 └── log/                # 日志和结果文件夹
-    ├── YYYY-MM-DD-log.txt      # 日志文件
-    └── YYYY-MM-DD-result.md    # 结果文件
+    ├── YYYY-MM-DD-cs.CV-log.txt      # 日志文件
+    ├── YYYY-MM-DD-cs.CV-result.md    # 结果文件
+    ├── YYYY-MM-DD-cs.LG-log.txt      # 日志文件
+    └── YYYY-MM-DD-cs.LG-result.md    # 结果文件
 ```
 
 ## 安装依赖
@@ -51,10 +53,17 @@ import importlib.util
 spec = importlib.util.spec_from_file_location("crawl_raw_info", "crawl-raw-info.py")
 crawl_raw_info = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(crawl_raw_info)
-crawl_arxiv_cv = crawl_raw_info.crawl_arxiv_cv
+crawl_arxiv_papers = crawl_raw_info.crawl_arxiv_papers
 
 # 爬取指定日期的论文
-success = crawl_arxiv_cv("2025-07-30")
+success = crawl_arxiv_papers("2025-07-30", "cs.CV")  # 计算机视觉
+if success:
+    print("爬取成功！")
+else:
+    print("爬取失败！")
+
+# 爬取机器学习论文
+success = crawl_arxiv_papers("2025-07-30", "cs.LG")  # 机器学习
 if success:
     print("爬取成功！")
 else:
@@ -64,7 +73,7 @@ else:
 ### 3. 运行测试
 
 ```bash
-python test_crawl.py
+python test_historical_dates.py
 ```
 
 ### 4. 查看使用示例
@@ -75,17 +84,18 @@ python example_usage.py
 
 ## 函数参数
 
-### `crawl_arxiv_cv(target_date_str)`
+### `crawl_arxiv_papers(target_date_str, category="cs.CV")`
 
 **参数：**
 - `target_date_str` (str): 目标日期，格式为 'YYYY-MM-DD'
+- `category` (str): 论文分类，支持 'cs.CV'（计算机视觉）或 'cs.LG'（机器学习）
 
 **返回值：**
 - `bool`: 是否成功
 
 **输出文件：**
-- 日志文件：`log/YYYY-MM-DD-log.txt`
-- 结果文件：`log/YYYY-MM-DD-result.md`
+- 日志文件：`log/YYYY-MM-DD-category-log.txt`
+- 结果文件：`log/YYYY-MM-DD-category-result.md`
 
 ## 输出格式
 
