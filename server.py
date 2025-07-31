@@ -203,5 +203,5 @@ def get_available_dates():
 
 if __name__ == '__main__':
     print("启动Arxiv文章初筛小助手服务器...")
-    print("访问地址: http://localhost:5000")
-    app.run(debug=True, host='0.0.0.0', port=5000) 
+    print("访问地址: http://localhost:8080")
+    app.run(debug=True, host='0.0.0.0', port=8080) 
