@@ -4,6 +4,7 @@ import os
 import re
 import json
 from datetime import datetime
+from crawl_raw_info import crawl_arxiv_papers
 
 app = Flask(__name__)
 CORS(app)  # 允许跨域请求
@@ -18,27 +19,61 @@ def search_articles():
     try:
         data = request.get_json()
         selected_date = data.get('date')
-        selected_category = data.get('category', '')
+        selected_category = data.get('category', 'cs.CV')  # 默认使用cs.CV
         
         if not selected_date:
             return jsonify({'error': '请选择日期'}), 400
         
+        # 检查是否是今天
+        today = datetime.now().date()
+        selected_date_obj = datetime.strptime(selected_date, '%Y-%m-%d').date()
+        is_today = selected_date_obj == today
+        
         # 构建文件名
         date_obj = datetime.strptime(selected_date, '%Y-%m-%d')
-        filename = f"{date_obj.strftime('%Y-%m-%d')}-result.md"
+        filename = f"{date_obj.strftime('%Y-%m-%d')}-{selected_category}-result.md"
         filepath = os.path.join('log', filename)
         
+        # 检查文件是否存在，如果不存在则尝试爬取
         if not os.path.exists(filepath):
-            return jsonify({'error': f'未找到 {selected_date} 的数据文件'}), 404
+            print(f"文件不存在: {filepath}，开始爬取数据...")
+            
+            # 调用爬虫函数
+            success = crawl_arxiv_papers(selected_date, selected_category)
+            
+            if not success:
+                return jsonify({'error': f'爬取 {selected_date} 的 {selected_category} 数据失败，请稍后重试'}), 500
+            
+            # 重新检查文件是否存在
+            if not os.path.exists(filepath):
+                return jsonify({'error': f'爬取完成但未找到生成的文件: {filepath}'}), 500
         
         # 读取并解析markdown文件
         articles = parse_markdown_file(filepath, selected_category)
+        
+        # 如果是今天且没有找到论文，返回特殊错误信息并删除log文件
+        if is_today and len(articles) == 0:
+            # 删除当天的log文件
+            log_file = os.path.join('log', f"{date_obj.strftime('%Y-%m-%d')}-{selected_category}-log.txt")
+            if os.path.exists(log_file):
+                os.remove(log_file)
+            if os.path.exists(filepath):
+                os.remove(filepath)
+            
+            return jsonify({
+                'error': f'今天没有新的{selected_category}论文被提交到arXiv。这是正常现象，因为论文提交和索引需要时间。'
+            }), 404
+        
+        # 如果不是今天且没有论文，返回一般性错误
+        if len(articles) == 0:
+            return jsonify({'error': f'未找到 {selected_date} 的 {selected_category} 论文数据'}), 404
         
         return jsonify({
             'success': True,
             'articles': articles,
             'total': len(articles),
-            'date': selected_date
+            'date': selected_date,
+            'category': selected_category
         })
         
     except Exception as e:
@@ -74,9 +109,7 @@ def parse_markdown_file(filepath, category_filter=''):
                     abstract = parts[4]
                     link = parts[5]
                     
-                    # 如果指定了类别筛选，检查标题或摘要中是否包含该类别
-                    if category_filter and category_filter not in title and category_filter not in abstract:
-                        continue
+                    # 不再进行类别筛选，因为文件已经是按类别生成的
                     
                     articles.append({
                         'number': number,

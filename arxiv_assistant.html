@@ -351,7 +351,6 @@
                 <div class="control-item">
                     <label for="categorySelect">🏷️ 板块筛选</label>
                     <select id="categorySelect">
-                        <option value="">全部板块</option>
                         <option value="cs.CV">cs.CV - 计算机视觉</option>
                         <option value="cs.LG">cs.LG - 机器学习</option>
                     </select>
@@ -380,14 +379,6 @@
                 <div class="stat-item">
                     <span>📄 文章总数:</span>
                     <span class="stat-value" id="totalArticles">0</span>
-                </div>
-                <div class="stat-item">
-                    <span>👥 作者总数:</span>
-                    <span class="stat-value" id="totalAuthors">0</span>
-                </div>
-                <div class="stat-item">
-                    <span>🏷️ 板块分布:</span>
-                    <span class="stat-value" id="categoryDistribution">-</span>
                 </div>
             </div>
             
@@ -515,19 +506,6 @@
 
         function updateStats(articles) {
             document.getElementById('totalArticles').textContent = articles.length;
-            
-            // 计算作者总数（去重）
-            const allAuthors = new Set();
-            articles.forEach(article => {
-                article.authors.split(',').forEach(author => {
-                    allAuthors.add(author.trim());
-                });
-            });
-            document.getElementById('totalAuthors').textContent = allAuthors.size;
-            
-            // 板块分布（这里简化处理）
-            document.getElementById('categoryDistribution').textContent = 'cs.CV: 60%, cs.LG: 40%';
-            
             document.getElementById('stats').style.display = 'flex';
         }
 

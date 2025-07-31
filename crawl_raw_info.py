@@ -37,23 +37,23 @@ def crawl_arxiv_papers(target_date_str, category="cs.CV"):
                 print(f"当前本地时间: {dt.datetime.now()}")
                 
                 # 构建日期范围查询
-                # 如果目标日期是今天或昨天，使用原来的方法
+                # 如果目标日期是今天或昨天，使用宽松的查询方式
                 today = dt.date.today()
                 if target_date >= today - dt.timedelta(days=1):
                     URL = ("http://export.arxiv.org/api/query?"
                            f"search_query=cat:{category}&"
                            "sortBy=submittedDate&sortOrder=descending&"
-                           "max_results=300")
+                           "max_results=1000")
                 else:
-                    # 对于更早的日期，使用日期范围查询
+                    # 对于更早的日期，使用严格的日期范围查询
                     # arXiv API使用UTC时间，格式为YYYYMMDDHHMMSS
                     start_date = target_date.strftime('%Y%m%d') + '000000'
-                    end_date = (target_date + dt.timedelta(days=1)).strftime('%Y%m%d') + '235959'
+                    end_date = target_date.strftime('%Y%m%d') + '235959'
                     
                     URL = ("http://export.arxiv.org/api/query?"
                            f"search_query=cat:{category}+AND+submittedDate:[{start_date}+TO+{end_date}]&"
                            "sortBy=submittedDate&sortOrder=descending&"
-                           "max_results=1000")  # 增加结果数量以获取更多论文
+                           "max_results=1000") 
                 
                 print(f"使用的URL: {URL}")
                 feed = feedparser.parse(requests.get(URL, timeout=30).text)
@@ -69,24 +69,22 @@ def crawl_arxiv_papers(target_date_str, category="cs.CV"):
                 for i, entry in enumerate(feed.entries):
                     pub_date = dt.datetime(*entry.published_parsed[:6]).date()
                     
-                    # 修改条件：包含目标日期和前一天（考虑时区差异）
-                    if pub_date < yesterday: 
-                        print(f"发布日期 {pub_date} 早于昨天 {yesterday}，跳过后续论文")
-                        break
-                    
+                    # 只保留目标日期的论文
                     if pub_date == target_date:
                         print(f"找到目标日期的论文: {entry.title[:50]}...")
-                    elif pub_date == yesterday:
-                        print(f"找到前一天的论文: {entry.title[:50]}...")
-                    
-                    rows.append({
-                        "No.":       len(rows) + 1,  # 从1开始的序号
-                        "number_id": re.search(r'(\d+\.\d+)', entry.id).group(1),
-                        "title":     entry.title.strip().replace('\n', ' '),
-                        "authors":   ', '.join(a.name for a in entry.authors),
-                        "abstract":  entry.summary.strip().replace('\n', ' '),
-                        "link":      entry.link
-                    })
+                        
+                        rows.append({
+                            "No.":       len(rows) + 1,  # 从1开始的序号
+                            "number_id": re.search(r'(\d+\.\d+)', entry.id).group(1),
+                            "title":     entry.title.strip().replace('\n', ' '),
+                            "authors":   ', '.join(a.name for a in entry.authors),
+                            "abstract":  entry.summary.strip().replace('\n', ' '),
+                            "link":      entry.link
+                        })
+                    elif pub_date < target_date:
+                        # 如果遇到早于目标日期的论文，说明已经过了目标日期，可以停止搜索
+                        print(f"发布日期 {pub_date} 早于目标日期 {target_date}，停止搜索")
+                        break
                 
                 print(f"找到 {len(rows)} 篇论文")
                 
@@ -97,7 +95,12 @@ def crawl_arxiv_papers(target_date_str, category="cs.CV"):
                     return True
                 else:
                     print("未找到任何论文")
-                    return False
+                    # 即使没有找到论文，也创建一个空的结果文件
+                    with open(result_file, 'w', encoding='utf-8') as f:
+                        f.write("| No. | number_id | title | authors | abstract | link |\n")
+                        f.write("|-----|-----------|-------|---------|----------|------|\n")
+                    print(f"创建空结果文件: {result_file}")
+                    return True
                     
     except Exception as e:
         print(f"发生错误: {str(e)}")
