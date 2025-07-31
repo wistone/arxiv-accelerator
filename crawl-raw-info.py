@@ -3,12 +3,13 @@ import os
 import sys
 from contextlib import redirect_stdout, redirect_stderr
 
-def crawl_arxiv_cv(target_date_str):
+def crawl_arxiv_papers(target_date_str, category="cs.CV"):
     """
-    爬取指定日期的arXiv CS.CV论文
+    爬取指定日期的arXiv论文
     
     Args:
         target_date_str (str): 目标日期，格式为 'YYYY-MM-DD'
+        category (str): 论文分类，支持 'cs.CV' 或 'cs.LG'
     
     Returns:
         bool: 是否成功
@@ -23,13 +24,14 @@ def crawl_arxiv_cv(target_date_str):
         os.makedirs(log_folder, exist_ok=True)
         
         # 设置日志文件路径
-        log_file = os.path.join(log_folder, f"{target_date_str}-log.txt")
-        result_file = os.path.join(log_folder, f"{target_date_str}-result.md")
+        log_file = os.path.join(log_folder, f"{target_date_str}-{category}-log.txt")
+        result_file = os.path.join(log_folder, f"{target_date_str}-{category}-result.md")
         
         # 重定向输出到日志文件
         with open(log_file, 'w', encoding='utf-8') as f:
             with redirect_stdout(f), redirect_stderr(f):
                 print(f"目标日期: {target_date}")
+                print(f"论文分类: {category}")
                 print(f"昨天的日期: {yesterday}")
                 print(f"当前UTC时间: {dt.datetime.now(dt.UTC)}")
                 print(f"当前本地时间: {dt.datetime.now()}")
@@ -39,7 +41,7 @@ def crawl_arxiv_cv(target_date_str):
                 today = dt.date.today()
                 if target_date >= today - dt.timedelta(days=1):
                     URL = ("http://export.arxiv.org/api/query?"
-                           "search_query=cat:cs.CV&"
+                           f"search_query=cat:{category}&"
                            "sortBy=submittedDate&sortOrder=descending&"
                            "max_results=300")
                 else:
@@ -49,7 +51,7 @@ def crawl_arxiv_cv(target_date_str):
                     end_date = (target_date + dt.timedelta(days=1)).strftime('%Y%m%d') + '235959'
                     
                     URL = ("http://export.arxiv.org/api/query?"
-                           f"search_query=cat:cs.CV+AND+submittedDate:[{start_date}+TO+{end_date}]&"
+                           f"search_query=cat:{category}+AND+submittedDate:[{start_date}+TO+{end_date}]&"
                            "sortBy=submittedDate&sortOrder=descending&"
                            "max_results=1000")  # 增加结果数量以获取更多论文
                 
@@ -102,7 +104,7 @@ def crawl_arxiv_cv(target_date_str):
         return False
 
 if __name__ == "__main__":
-    # 如果直接运行脚本，使用今天的日期
+    # 如果直接运行脚本，使用今天的日期和cs.CV分类
     today = dt.date.today().strftime('%Y-%m-%d')
-    success = crawl_arxiv_cv(today)
+    success = crawl_arxiv_papers(today, "cs.CV")
     print(f"爬取{'成功' if success else '失败'}")

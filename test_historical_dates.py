@@ -11,33 +11,33 @@ from datetime import datetime, timedelta
 spec = importlib.util.spec_from_file_location("crawl_raw_info", "crawl-raw-info.py")
 crawl_raw_info = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(crawl_raw_info)
-crawl_arxiv_cv = crawl_raw_info.crawl_arxiv_cv
+crawl_arxiv_papers = crawl_raw_info.crawl_arxiv_papers
 
 def test_historical_dates():
     """测试历史日期查询功能"""
     
     print("=== 测试历史日期查询功能 ===\n")
     
-    # 测试用例：不同的历史日期
-    test_dates = [
-        # "2025-07-28",  # 6天前
-        # "2025-07-20",  # 11天前
-        # "2025-07-15",  # 16天前
-        # "2025-07-10",  # 21天前
-        "2025-13-01"  # 无效的月份
+    # 测试用例：不同的历史日期和分类
+    test_cases = [
+        # ("2025-07-25", "cs.CV"),  # 6天前，计算机视觉
+        ("2025-07-28", "cs.LG"),  # 6天前，机器学习
+        # ("2025-07-20", "cs.CV"),  # 11天前，计算机视觉
+        # ("2025-07-20", "cs.LG"),  # 11天前，机器学习
+        # ("2025-13-01", "cs.CV"),  # 无效的月份
     ]
     
-    for date in test_dates:
-        print(f"正在测试日期: {date}")
-        success = crawl_arxiv_cv(date)
+    for date, category in test_cases:
+        print(f"正在测试日期: {date}, 分类: {category}")
+        success = crawl_arxiv_papers(date, category)
         
         if success:
-            print(f"✓ {date} 查询成功")
+            print(f"✓ {date} ({category}) 查询成功")
             
             # 检查生成的文件
             import os
-            log_file = f"log/{date}-log.txt"
-            result_file = f"log/{date}-result.md"
+            log_file = f"log/{date}-{category}-log.txt"
+            result_file = f"log/{date}-{category}-result.md"
             
             if os.path.exists(log_file):
                 with open(log_file, 'r', encoding='utf-8') as f:
@@ -62,7 +62,7 @@ def test_historical_dates():
             else:
                 print(f"  ✗ 结果文件未生成")
         else:
-            print(f"✗ {date} 查询失败")
+            print(f"✗ {date} ({category}) 查询失败")
         
         print()
     
