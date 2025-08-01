@@ -869,23 +869,38 @@
             const tableBody = document.getElementById('tableBody');
             tableBody.innerHTML = '';
 
+            // 更新表头为搜索结果格式
+            const tableHead = document.querySelector('#arxivTable thead tr');
+            tableHead.innerHTML = `
+                <th class="number-cell">序号</th>
+                <th>标题</th>
+                <th class="authors-cell">作者</th>
+                <th class="abstract-cell">摘要</th>
+            `;
+
             articles.forEach(article => {
                 const row = document.createElement('tr');
                 row.innerHTML = `
                     <td class="number-cell">${article.number}</td>
-                    <td class="id-cell">${article.id}</td>
-                    <td class="title-cell">${article.title}</td>
-                    <td class="authors-cell">${article.authors}</td>
+                    <td class="title-cell">
+                        <div class="title-content">${article.title}</div>
+                        <div class="title-link">
+                            <a href="${article.link}" target="_blank">查看论文</a>
+                        </div>
+                    </td>
+                    <td class="authors-cell">
+                        <div class="authors-content" id="authors-${article.number}">
+                            ${article.authors}
+                        </div>
+                        ${article.authors.length > 100 ? `<span class="authors-toggle" onclick="toggleAuthors('authors-${article.number}')">展开/收起</span>` : ''}
+                    </td>
                     <td class="abstract-cell">
                         <div class="abstract-content" id="abstract-${article.number}">
                             ${article.abstract}
                         </div>
-                        <span class="abstract-toggle" onclick="toggleAbstract(${article.number})">
+                        <span class="abstract-toggle" onclick="toggleAbstract('abstract-${article.number}')">
                             展开/收起
                         </span>
-                    </td>
-                    <td class="link-cell">
-                        <a href="${article.link}" target="_blank">查看论文</a>
                     </td>
                 `;
                 tableBody.appendChild(row);
