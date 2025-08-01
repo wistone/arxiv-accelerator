@@ -1,13 +1,21 @@
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, Response
 from flask_cors import CORS
 import os
 import re
 import json
+import time
+import threading
 from datetime import datetime
 from crawl_raw_info import crawl_arxiv_papers
+from paper_analysis_processor import analyze_paper, parse_markdown_table, generate_analysis_markdown
+from doubao_client import DoubaoClient
 
 app = Flask(__name__)
 CORS(app)  # 允许跨域请求
+
+# 全局变量用于跟踪分析进度
+analysis_progress = {}
+analysis_lock = threading.Lock()
 
 # 设置静态文件目录
 @app.route('/')
@@ -205,6 +213,291 @@ def analyze_articles_data(articles):
         'research_areas': [area for area, count in top_areas],
         'summary': f'分析了 {len(articles)} 篇文章，主要研究方向包括：{", ".join([area for area, count in top_areas])}。热门关键词：{", ".join([word for word, count in top_keywords[:5]])}。'
     }
+
+@app.route('/api/check_analysis_exists', methods=['POST'])
+def check_analysis_exists():
+    """检查分析结果文件是否已存在"""
+    try:
+        data = request.get_json()
+        selected_date = data.get('date')
+        selected_category = data.get('category', 'cs.CV')
+        
+        if not selected_date:
+            return jsonify({'error': '请选择日期'}), 400
+        
+        # 构建分析结果文件路径
+        filename = f"{selected_date}-{selected_category}-analysis.md"
+        filepath = os.path.join('log', filename)
+        
+        exists = os.path.exists(filepath)
+        
+        return jsonify({
+            'exists': exists,
+            'filepath': filepath if exists else None
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'检查文件失败: {str(e)}'}), 500
+
+@app.route('/api/analyze_papers', methods=['POST'])
+def analyze_papers():
+    """启动论文分析"""
+    try:
+        data = request.get_json()
+        selected_date = data.get('date')
+        selected_category = data.get('category', 'cs.CV')
+        test_count = data.get('test_count')
+        
+        if not selected_date:
+            return jsonify({'error': '请选择日期'}), 400
+        
+        # 构建输入文件路径
+        filename = f"{selected_date}-{selected_category}-result.md"
+        filepath = os.path.join('log', filename)
+        
+        if not os.path.exists(filepath):
+            return jsonify({'error': f'未找到 {selected_date} 的 {selected_category} 数据文件'}), 404
+        
+        # 创建分析任务ID
+        task_id = f"{selected_date}-{selected_category}"
+        
+        # 启动后台分析任务
+        thread = threading.Thread(
+            target=run_analysis_task,
+            args=(task_id, filepath, selected_date, selected_category, test_count)
+        )
+        thread.daemon = True
+        thread.start()
+        
+        return jsonify({'success': True, 'task_id': task_id})
+        
+    except Exception as e:
+        return jsonify({'error': f'启动分析失败: {str(e)}'}), 500
+
+def run_analysis_task(task_id, input_file, selected_date, selected_category, test_count):
+    """后台运行分析任务"""
+    try:
+        with analysis_lock:
+            analysis_progress[task_id] = {
+                'current': 0,
+                'total': 0,
+                'status': 'starting',
+                'paper': None,
+                'analysis_result': None
+            }
+        
+        # 读取system prompt
+        system_prompt_file = "prompt/system_prompt.md"
+        if not os.path.exists(system_prompt_file):
+            raise Exception("system_prompt.md文件不存在")
+            
+        with open(system_prompt_file, 'r', encoding='utf-8') as f:
+            system_prompt = f.read().strip()
+        
+        # 解析原始markdown文件
+        papers = parse_markdown_table(input_file)
+        if not papers:
+            raise Exception("无法解析markdown文件")
+        
+        # 如果指定了测试数量，只处理前N篇
+        if test_count:
+            papers = papers[:test_count]
+        
+        with analysis_lock:
+            analysis_progress[task_id]['total'] = len(papers)
+            analysis_progress[task_id]['status'] = 'processing'
+        
+        # 创建doubao客户端
+        client = DoubaoClient()
+        
+        # 处理每篇论文
+        for i, paper in enumerate(papers):
+            with analysis_lock:
+                analysis_progress[task_id]['current'] = i + 1
+                analysis_progress[task_id]['paper'] = paper
+                analysis_progress[task_id]['analysis_result'] = None
+            
+            # 调用论文分析
+            analysis_result = analyze_paper(client, system_prompt, paper['title'], paper['abstract'])
+            paper['analysis_result'] = analysis_result
+            
+            with analysis_lock:
+                analysis_progress[task_id]['analysis_result'] = analysis_result
+            
+            # 简单延时以便前端能看到进度
+            time.sleep(0.1)
+        
+        # 生成输出文件
+        output_name = f"{selected_date}-{selected_category}-analysis.md"
+        output_file = os.path.join('log', output_name)
+        generate_analysis_markdown(papers, output_file)
+        
+        with analysis_lock:
+            analysis_progress[task_id]['status'] = 'completed'
+            analysis_progress[task_id]['output_file'] = output_file
+        
+    except Exception as e:
+        with analysis_lock:
+            analysis_progress[task_id]['status'] = 'error'
+            analysis_progress[task_id]['error'] = str(e)
+
+@app.route('/api/analysis_progress')
+def analysis_progress_stream():
+    """Server-Sent Events流，用于实时获取分析进度"""
+    # 在请求上下文中获取参数
+    date = request.args.get('date')
+    category = request.args.get('category', 'cs.CV')
+    task_id = f"{date}-{category}"
+    
+    def generate(task_id):
+        last_current = -1
+        last_status = None
+        loop_count = 0
+        max_loops = 300  # 最多循环5分钟（300秒）
+        
+        # 立即发送初始状态
+        yield f"data: {json.dumps({'status': 'connecting', 'current': 0, 'total': 0}, ensure_ascii=False)}\n\n"
+        
+        while loop_count < max_loops:
+            loop_count += 1
+            
+            with analysis_lock:
+                progress = analysis_progress.get(task_id, {})
+            
+            status = progress.get('status', 'unknown')
+            current = progress.get('current', 0)
+            
+            # 减少调试信息的频率，只在状态或进度变化时打印
+            if status != last_status or current != last_current:
+                print(f"SSE Debug - task_id: {task_id}, status: {status}, current: {current}, loop: {loop_count}")
+            
+            # 只在进度有变化时发送数据，或者是特殊状态
+            should_send = (
+                current != last_current or 
+                status != last_status or
+                status in ['completed', 'error', 'starting']
+            )
+            
+            if should_send:
+                data = {
+                    'current': current,
+                    'total': progress.get('total', 0),
+                    'status': status,
+                    'paper': progress.get('paper'),
+                    'analysis_result': progress.get('analysis_result')
+                }
+                
+                print(f"SSE Sending data - current: {current}, status: {status}, has_result: {bool(data['analysis_result'])}")
+                yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+                last_current = current
+                last_status = status
+            
+            if status == 'completed':
+                # 发送完成事件
+                completion_data = {
+                    'summary': f'分析完成！共处理 {progress.get("total", 0)} 篇论文'
+                }
+                yield f"event: complete\ndata: {json.dumps(completion_data, ensure_ascii=False)}\n\n"
+                print(f"SSE stream completed for task_id: {task_id}")
+                break
+            elif status == 'error':
+                error_data = {
+                    'error': progress.get('error', '未知错误')
+                }
+                yield f"event: error\ndata: {json.dumps(error_data, ensure_ascii=False)}\n\n"
+                print(f"SSE stream error for task_id: {task_id}")
+                break
+            
+            time.sleep(1)  # 每秒检查一次
+        
+        # 如果循环超时，发送超时错误
+        if loop_count >= max_loops:
+            timeout_data = {'error': 'SSE stream timeout'}
+            yield f"event: error\ndata: {json.dumps(timeout_data, ensure_ascii=False)}\n\n"
+            print(f"SSE stream timeout for task_id: {task_id}")
+    
+    return Response(generate(task_id), mimetype='text/event-stream')
+
+@app.route('/api/get_analysis_results', methods=['POST'])
+def get_analysis_results():
+    """获取分析结果"""
+    try:
+        data = request.get_json()
+        selected_date = data.get('date')
+        selected_category = data.get('category', 'cs.CV')
+        
+        if not selected_date:
+            return jsonify({'error': '请选择日期'}), 400
+        
+        # 构建分析结果文件路径
+        filename = f"{selected_date}-{selected_category}-analysis.md"
+        filepath = os.path.join('log', filename)
+        
+        if not os.path.exists(filepath):
+            return jsonify({'error': f'未找到 {selected_date} 的 {selected_category} 分析结果文件'}), 404
+        
+        # 解析分析结果文件
+        articles = parse_analysis_markdown_file(filepath)
+        
+        if len(articles) == 0:
+            return jsonify({'error': f'分析结果文件为空'}), 404
+        
+        return jsonify({
+            'success': True,
+            'articles': articles,
+            'total': len(articles),
+            'date': selected_date,
+            'category': selected_category
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'服务器错误: {str(e)}'}), 500
+
+def parse_analysis_markdown_file(filepath):
+    """解析分析结果markdown文件"""
+    articles = []
+    
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # 分割表格行
+        lines = content.strip().split('\n')
+        
+        # 跳过标题行和分隔行
+        data_lines = []
+        for line in lines:
+            if line.startswith('|') and not line.startswith('|------'):
+                data_lines.append(line)
+        
+        # 解析每一行数据
+        for i, line in enumerate(data_lines[1:], 1):  # 跳过表头
+            parts = [part.strip() for part in line.split('|')[1:-1]]  # 去掉首尾的 |
+            
+            if len(parts) >= 6:
+                try:
+                    number = int(parts[0])
+                    analysis_result = parts[1].replace('\\|', '|')  # 还原转义的管道符
+                    title = parts[2].replace('\\|', '|')
+                    authors = parts[3].replace('\\|', '|')
+                    abstract = parts[4].replace('\\|', '|')
+                    link = parts[5].replace('\\|', '|')
+                    
+                    articles.append({
+                        'number': number,
+                        'analysis_result': analysis_result,
+                        'title': title,
+                        'authors': authors,
+                        'abstract': abstract,
+                        'link': link
+                    })
+                except (ValueError, IndexError):
+                    continue
+    
+    except Exception as e:
+        print(f"解析分析结果文件 {filepath} 时出错: {e}")
+    
+    return articles
 
 @app.route('/api/available_dates', methods=['GET'])
 def get_available_dates():

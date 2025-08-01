@@ -19,30 +19,42 @@ def read_file_content(file_path):
 def analyze_paper(client, system_prompt, title, abstract):
     """分析单篇论文"""
     try:
+        print(f"开始分析论文: {title[:50]}...")
+        
         # 构建user prompt
         user_prompt = f"Title: {title}\nAbstract: {abstract}"
         
+        print("正在调用AI模型...")
         response = client.chat(
             message=user_prompt,
             system_prompt=system_prompt,
             verbose=False  # 简化输出
         )
+        print(f"AI模型响应完成，响应长度: {len(response) if response else 0}")
         
         if response:
             try:
                 # 尝试解析JSON
                 parsed_json = json.loads(response)
                 # 返回紧凑的JSON字符串
-                return json.dumps(parsed_json, ensure_ascii=False, separators=(',', ':'))
+                result = json.dumps(parsed_json, ensure_ascii=False, separators=(',', ':'))
+                print(f"JSON解析成功: {result[:100]}...")
+                return result
             except json.JSONDecodeError as e:
                 print(f"JSON解析失败: {e}")
-                return f"{{\"error\": \"JSON parsing failed: {str(e)}\"}}"
+                error_result = f"{{\"error\": \"JSON parsing failed: {str(e)}\"}}"
+                print(f"返回错误结果: {error_result}")
+                return error_result
         else:
-            return "{\"error\": \"Model call failed\"}"
+            error_result = "{\"error\": \"Model call failed\"}"
+            print(f"模型调用失败，返回: {error_result}")
+            return error_result
             
     except Exception as e:
         print(f"分析过程中出现错误: {e}")
-        return f"{{\"error\": \"Analysis error: {str(e)}\"}}"
+        error_result = f"{{\"error\": \"Analysis error: {str(e)}\"}}"
+        print(f"异常处理返回: {error_result}")
+        return error_result
 
 def parse_markdown_table(file_path):
     """解析markdown表格"""

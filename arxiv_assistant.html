@@ -309,6 +309,130 @@
             font-size: 12px;
         }
 
+        /* 分析进度弹窗样式 */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.5);
+        }
+
+        .modal-content {
+            background-color: #fefefe;
+            margin: 10% auto;
+            padding: 30px;
+            border: none;
+            border-radius: 15px;
+            width: 80%;
+            max-width: 800px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #e9ecef;
+        }
+
+        .modal-title {
+            font-size: 1.5em;
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .close:hover,
+        .close:focus {
+            color: #000;
+            text-decoration: none;
+        }
+
+        .progress-container {
+            margin: 20px 0;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 25px;
+            background-color: #e9ecef;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            width: 0%;
+            transition: width 0.3s ease;
+            border-radius: 15px;
+        }
+
+        .progress-text {
+            text-align: center;
+            margin: 10px 0;
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .current-paper {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            border-left: 4px solid #667eea;
+        }
+
+        .current-paper h4 {
+            margin: 0 0 8px 0;
+            color: #495057;
+            font-size: 16px;
+        }
+
+        .current-paper p {
+            margin: 5px 0;
+            color: #6c757d;
+            font-size: 14px;
+        }
+
+        .analysis-summary {
+            background: #e7f3ff;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            border: 1px solid #b3d9ff;
+        }
+
+        .test-options {
+            background: #fff3cd;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            border: 1px solid #ffeaa7;
+        }
+
+        .test-options select {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin: 0 10px;
+        }
+
         @media (max-width: 768px) {
             .control-group {
                 flex-direction: column;
@@ -331,6 +455,12 @@
             .stats {
                 flex-direction: column;
                 align-items: flex-start;
+            }
+
+            .modal-content {
+                width: 95%;
+                margin: 5% auto;
+                padding: 20px;
             }
         }
     </style>
@@ -360,7 +490,7 @@
                 <button class="btn btn-primary" onclick="searchArticles()">
                     🔍 搜索文章列表
                 </button>
-                <button class="btn btn-secondary" onclick="analyzeArticles()">
+                <button class="btn btn-secondary" id="analyzeBtn" onclick="analyzeArticles()" disabled>
                     📊 分析
                 </button>
             </div>
@@ -401,6 +531,52 @@
         </div>
     </div>
 
+    <!-- 分析进度弹窗 -->
+    <div id="analysisModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">📊 论文分析进度</h2>
+                <span class="close" onclick="closeModal()">&times;</span>
+            </div>
+            
+            <!-- 测试模式选项 -->
+            <div class="test-options" id="testOptions">
+                <label for="testCount">🧪 测试模式（建议调试时使用）:</label>
+                <select id="testCount">
+                    <option value="">全部分析</option>
+                    <option value="5">仅前5篇</option>
+                    <option value="10">仅前10篇</option>
+                    <option value="20">仅前20篇</option>
+                </select>
+                <button class="btn btn-primary" onclick="startAnalysis()" style="margin-left: 15px;">
+                    开始分析
+                </button>
+            </div>
+            
+            <!-- 进度条 -->
+            <div class="progress-container" id="progressContainer" style="display: none;">
+                <div class="progress-bar">
+                    <div class="progress-bar-fill" id="progressBarFill"></div>
+                </div>
+                <div class="progress-text" id="progressText">准备开始分析...</div>
+            </div>
+            
+            <!-- 当前处理的论文信息 -->
+            <div class="current-paper" id="currentPaper" style="display: none;">
+                <h4 id="currentTitle">论文标题</h4>
+                <p><strong>作者:</strong> <span id="currentAuthors">作者信息</span></p>
+                <p><strong>摘要:</strong> <span id="currentAbstract">摘要内容...</span></p>
+                <p><strong>分析结果:</strong> <span id="currentAnalysis">正在分析...</span></p>
+            </div>
+            
+            <!-- 分析汇总 -->
+            <div class="analysis-summary" id="analysisSummary" style="display: none;">
+                <h4>📋 分析汇总</h4>
+                <p id="summaryText">分析汇总将在这里显示...</p>
+            </div>
+        </div>
+    </div>
+
     <script>
         // 设置日期选择器的最大值为今天
         document.getElementById('dateSelect').max = new Date().toISOString().split('T')[0];
@@ -432,6 +608,10 @@
             document.getElementById('success').style.display = 'block';
         }
 
+        // 全局变量
+        let currentArticles = [];
+        let hasSearched = false;
+
         async function searchArticles() {
             const selectedDate = document.getElementById('dateSelect').value;
             const selectedCategory = document.getElementById('categorySelect').value;
@@ -458,15 +638,26 @@
                 const data = await response.json();
 
                 if (response.ok) {
+                    currentArticles = data.articles;
+                    hasSearched = true;
                     displayArticles(data.articles);
                     updateStats(data.articles);
                     showSuccess(`成功加载 ${selectedDate} 的文章数据，共 ${data.total} 篇文章`);
+                    
+                    // 启用分析按钮
+                    document.getElementById('analyzeBtn').disabled = false;
                 } else {
                     showError(data.error || '搜索失败');
+                    // 禁用分析按钮
+                    document.getElementById('analyzeBtn').disabled = true;
+                    hasSearched = false;
                 }
             } catch (error) {
                 showError('网络错误，请检查服务器是否运行');
                 console.error('搜索错误:', error);
+                // 禁用分析按钮
+                document.getElementById('analyzeBtn').disabled = true;
+                hasSearched = false;
             }
         }
 
@@ -499,9 +690,11 @@
             document.getElementById('tableContainer').style.display = 'block';
         }
 
-        function toggleAbstract(articleNumber) {
-            const abstractContent = document.getElementById(`abstract-${articleNumber}`);
-            abstractContent.classList.toggle('expanded');
+        function toggleAbstract(elementId) {
+            const abstractContent = document.getElementById(elementId);
+            if (abstractContent) {
+                abstractContent.classList.toggle('expanded');
+            }
         }
 
         function updateStats(articles) {
@@ -510,18 +703,185 @@
         }
 
         async function analyzeArticles() {
-            const selectedDate = document.getElementById('dateSelect').value;
-            const selectedCategory = document.getElementById('categorySelect').value;
-            
-            if (!selectedDate) {
-                showError('请先选择日期');
+            if (!hasSearched || currentArticles.length === 0) {
+                showError('请先搜索文章列表');
                 return;
             }
 
-            showLoading();
+            const selectedDate = document.getElementById('dateSelect').value;
+            const selectedCategory = document.getElementById('categorySelect').value;
+            
+            // 首先检查是否已存在分析结果文件
+            try {
+                const response = await fetch('/api/check_analysis_exists', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        date: selectedDate,
+                        category: selectedCategory
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.exists) {
+                    // 如果分析文件已存在，直接加载结果
+                    showSuccess('发现已有分析结果，正在加载...');
+                    await loadAnalysisResults();
+                    return;
+                }
+            } catch (error) {
+                console.log('检查分析文件时出错，继续进行新分析:', error);
+            }
+
+            // 如果不存在分析文件，显示分析弹窗
+            document.getElementById('analysisModal').style.display = 'block';
+            
+            // 重置弹窗状态
+            document.getElementById('testOptions').style.display = 'block';
+            document.getElementById('progressContainer').style.display = 'none';
+            document.getElementById('currentPaper').style.display = 'none';
+            document.getElementById('analysisSummary').style.display = 'none';
+        }
+
+        function closeModal() {
+            document.getElementById('analysisModal').style.display = 'none';
+        }
+
+        async function startAnalysis() {
+            const selectedDate = document.getElementById('dateSelect').value;
+            const selectedCategory = document.getElementById('categorySelect').value;
+            const testCount = document.getElementById('testCount').value;
+            
+            // 隐藏测试选项，显示进度条
+            document.getElementById('testOptions').style.display = 'none';
+            document.getElementById('progressContainer').style.display = 'block';
+            document.getElementById('currentPaper').style.display = 'block';
             
             try {
-                const response = await fetch('/api/analyze_articles', {
+                const response = await fetch('/api/analyze_papers', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        date: selectedDate,
+                        category: selectedCategory,
+                        test_count: testCount ? parseInt(testCount) : null
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('分析请求失败');
+                }
+
+                // 使用Server-Sent Events获取实时进度
+                const eventSource = new EventSource(`/api/analysis_progress?date=${selectedDate}&category=${selectedCategory}&test_count=${testCount || ''}`);
+                
+                eventSource.onmessage = function(event) {
+                    console.log('SSE received:', event.data);
+                    const data = JSON.parse(event.data);
+                    console.log('SSE parsed data:', data);
+                    updateProgress(data);
+                };
+
+                eventSource.onerror = function(event) {
+                    console.error('SSE连接错误:', event);
+                    eventSource.close();
+                };
+
+                eventSource.addEventListener('complete', function(event) {
+                    const data = JSON.parse(event.data);
+                    onAnalysisComplete(data);
+                    eventSource.close();
+                });
+
+            } catch (error) {
+                showError('分析启动失败: ' + error.message);
+                console.error('分析错误:', error);
+            }
+        }
+
+        function updateProgress(data) {
+            const { current, total, paper, analysis_result, status } = data;
+            
+            console.log('updateProgress called with:', data);
+            
+            // 处理连接状态
+            if (status === 'connecting') {
+                document.getElementById('progressText').textContent = '正在连接分析服务...';
+                return;
+            }
+            
+            // 更新进度条
+            const progress = total > 0 ? (current / total) * 100 : 0;
+            document.getElementById('progressBarFill').style.width = progress + '%';
+            document.getElementById('progressText').textContent = `正在处理第 ${current} / ${total} 篇论文 (${progress.toFixed(1)}%)`;
+            
+            // 更新当前论文信息
+            if (paper) {
+                // 显示论文标题
+                document.getElementById('currentTitle').textContent = `第${current}篇: ${paper.title}`;
+                
+                // 显示作者
+                document.getElementById('currentAuthors').textContent = paper.authors;
+                
+                // 显示摘要（限制长度以便阅读）
+                const abstract = paper.abstract || '';
+                const shortAbstract = abstract.length > 300 ? abstract.substring(0, 300) + '...' : abstract;
+                document.getElementById('currentAbstract').textContent = shortAbstract;
+                
+                // 显示分析结果
+                if (analysis_result) {
+                    try {
+                        const result = JSON.parse(analysis_result);
+                        // 格式化分析结果以便阅读
+                        let formattedResult = '';
+                        if (result.pass_filter !== undefined) {
+                            formattedResult += `通过筛选: ${result.pass_filter ? '是' : '否'}\n`;
+                        }
+                        if (result.raw_score !== undefined) {
+                            formattedResult += `原始分数: ${result.raw_score}\n`;
+                        }
+                        if (result.norm_score !== undefined) {
+                            formattedResult += `标准化分数: ${result.norm_score}\n`;
+                        }
+                        if (result.reason) {
+                            formattedResult += `原因: ${result.reason}\n`;
+                        }
+                        if (result.exclude_reason) {
+                            formattedResult += `排除原因: ${result.exclude_reason}`;
+                        }
+                        
+                        document.getElementById('currentAnalysis').textContent = formattedResult || JSON.stringify(result, null, 2);
+                    } catch (e) {
+                        document.getElementById('currentAnalysis').textContent = analysis_result;
+                    }
+                } else {
+                    document.getElementById('currentAnalysis').textContent = '正在分析...';
+                }
+            }
+        }
+
+        async function onAnalysisComplete(data) {
+            // 显示完成信息
+            document.getElementById('progressText').textContent = '分析完成！正在加载结果...';
+            document.getElementById('analysisSummary').style.display = 'block';
+            document.getElementById('summaryText').textContent = data.summary || '分析已完成，正在加载结果...';
+            
+            // 立即关闭弹窗并加载新表格
+            closeModal();
+            await loadAnalysisResults();
+        }
+
+        async function loadAnalysisResults() {
+            const selectedDate = document.getElementById('dateSelect').value;
+            const selectedCategory = document.getElementById('categorySelect').value;
+            
+            try {
+                const response = await fetch('/api/get_analysis_results', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -535,15 +895,74 @@
                 const data = await response.json();
 
                 if (response.ok) {
-                    hideLoading();
-                    showSuccess(data.analysis.summary);
+                    displayAnalysisResults(data.articles);
+                    showSuccess(`分析完成！共处理 ${data.total} 篇论文`);
                 } else {
-                    showError(data.error || '分析失败');
+                    showError(data.error || '加载分析结果失败');
                 }
             } catch (error) {
-                showError('网络错误，请检查服务器是否运行');
-                console.error('分析错误:', error);
+                showError('加载分析结果时出现网络错误');
+                console.error('加载分析结果错误:', error);
             }
+        }
+
+        function displayAnalysisResults(articles) {
+            const tableBody = document.getElementById('tableBody');
+            tableBody.innerHTML = '';
+
+            // 更新表头为分析结果格式
+            const tableHead = document.querySelector('#arxivTable thead tr');
+            tableHead.innerHTML = `
+                <th class="number-cell">序号</th>
+                <th>分析结果</th>
+                <th>标题</th>
+                <th>作者</th>
+                <th>摘要</th>
+                <th>链接</th>
+            `;
+
+            articles.forEach(article => {
+                const row = document.createElement('tr');
+                
+                // 处理分析结果显示
+                let analysisDisplay = article.analysis_result || '无分析结果';
+                try {
+                    const analysisObj = JSON.parse(article.analysis_result);
+                    analysisDisplay = Object.keys(analysisObj).map(key => 
+                        `${key}: ${JSON.stringify(analysisObj[key])}`
+                    ).join('; ');
+                } catch (e) {
+                    // 如果不是JSON，直接显示
+                }
+
+                row.innerHTML = `
+                    <td class="number-cell">${article.number}</td>
+                    <td class="abstract-cell">
+                        <div class="abstract-content" id="analysis-${article.number}">
+                            ${analysisDisplay}
+                        </div>
+                        <span class="abstract-toggle" onclick="toggleAbstract('analysis-${article.number}')">
+                            展开/收起
+                        </span>
+                    </td>
+                    <td class="title-cell">${article.title}</td>
+                    <td class="authors-cell">${article.authors}</td>
+                    <td class="abstract-cell">
+                        <div class="abstract-content" id="abstract-${article.number}">
+                            ${article.abstract}
+                        </div>
+                        <span class="abstract-toggle" onclick="toggleAbstract('abstract-${article.number}')">
+                            展开/收起
+                        </span>
+                    </td>
+                    <td class="link-cell">
+                        <a href="${article.link}" target="_blank">查看论文</a>
+                    </td>
+                `;
+                tableBody.appendChild(row);
+            });
+
+            document.getElementById('tableContainer').style.display = 'block';
         }
 
         // 页面加载完成后的初始化
