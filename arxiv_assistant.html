@@ -218,22 +218,49 @@
         }
 
         .authors-cell {
-            max-width: 200px;
+            max-width: 250px; /* 增加作者列宽度 */
+            min-width: 180px;
             color: #6c757d;
             font-size: 13px;
         }
 
+        .authors-content {
+            max-height: 75px; /* 约5行的高度 */
+            overflow: hidden;
+            position: relative;
+            line-height: 1.4;
+        }
+
+        .authors-content.expanded {
+            max-height: none;
+        }
+
+        .authors-toggle {
+            color: #667eea;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 600;
+            margin-top: 3px;
+            display: block;
+        }
+
+        .authors-toggle:hover {
+            text-decoration: underline;
+        }
+
         .abstract-cell {
-            max-width: 400px;
+            max-width: 600px; /* 增加摘要列宽度 */
+            min-width: 400px;
             position: relative;
         }
 
         .abstract-content {
-            max-height: 100px;
+            max-height: 120px; /* 增加默认显示高度 */
             overflow: hidden;
             position: relative;
             line-height: 1.5;
             color: #495057;
+            text-align: justify; /* 两端对齐，提高可读性 */
         }
 
         .abstract-content.expanded {
@@ -431,6 +458,134 @@
             border: 1px solid #ddd;
             border-radius: 4px;
             margin: 0 10px;
+        }
+
+        /* 分析结果显示样式 */
+        .filter-cell {
+            text-align: center;
+            min-width: 100px;
+        }
+
+        .filter-result {
+            padding: 6px 12px;
+            border-radius: 15px;
+            font-weight: 600;
+            font-size: 13px;
+            display: inline-block;
+        }
+
+        .filter-result.passed {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .filter-result.rejected {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .score-cell {
+            text-align: center;
+            min-width: 80px; /* 减小宽度，因为现在是单独的列 */
+        }
+
+        .score-display {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+        }
+
+        .score-values {
+            font-weight: 700;
+            font-size: 18px; /* 稍微增大字体 */
+            color: #495057;
+        }
+
+        .score-label {
+            font-size: 11px;
+            color: #6c757d;
+            font-weight: 500;
+        }
+
+        .details-cell {
+            max-width: 400px; /* 稍微增加详细分析列宽度 */
+            min-width: 320px;
+        }
+
+        .analysis-details {
+            font-size: 13px;
+            line-height: 1.4;
+        }
+
+        .analysis-reason {
+            margin-bottom: 8px;
+            color: #495057;
+        }
+
+        .analysis-core {
+            margin-bottom: 6px;
+            color: #0066cc;
+            font-size: 12px;
+        }
+
+        .analysis-plus {
+            margin-bottom: 6px;
+            color: #28a745;
+            font-size: 12px;
+        }
+
+        .analysis-raw {
+            margin-top: 8px;
+        }
+
+        .raw-json-toggle {
+            color: #667eea;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 600;
+            display: block;
+            padding: 4px 0;
+        }
+
+        .raw-json-toggle:hover {
+            text-decoration: underline;
+        }
+
+        .raw-json {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 4px;
+            margin-top: 5px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .raw-json pre {
+            margin: 0;
+            padding: 10px;
+            font-size: 11px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            color: #495057;
+            line-height: 1.3;
+        }
+
+        .analysis-error {
+            color: #dc3545;
+            font-size: 12px;
+            font-style: italic;
+        }
+
+        /* 通过筛选的论文行高亮 */
+        .arxiv-table tr.passed-filter {
+            background: #f8fff8 !important;
+            border-left: 4px solid #28a745;
+        }
+
+        .arxiv-table tr.passed-filter:hover {
+            background: #f0fff0 !important;
         }
 
         @media (max-width: 768px) {
@@ -693,7 +848,29 @@
         function toggleAbstract(elementId) {
             const abstractContent = document.getElementById(elementId);
             if (abstractContent) {
-                abstractContent.classList.toggle('expanded');
+            abstractContent.classList.toggle('expanded');
+            }
+        }
+
+        function toggleRawJson(elementId) {
+            const rawJsonElement = document.getElementById(elementId);
+            const toggleElement = document.querySelector(`[onclick="toggleRawJson('${elementId}')"]`);
+            
+            if (rawJsonElement && toggleElement) {
+                if (rawJsonElement.style.display === 'none') {
+                    rawJsonElement.style.display = 'block';
+                    toggleElement.textContent = '隐藏原始JSON ▲';
+                } else {
+                    rawJsonElement.style.display = 'none';
+                    toggleElement.textContent = '查看原始JSON ▼';
+                }
+            }
+        }
+
+        function toggleAuthors(elementId) {
+            const authorsContent = document.getElementById(elementId);
+            if (authorsContent) {
+                authorsContent.classList.toggle('expanded');
             }
         }
 
@@ -814,7 +991,7 @@
                 document.getElementById('progressText').textContent = '正在连接分析服务...';
                 return;
             }
-            
+
             // 更新进度条
             const progress = total > 0 ? (current / total) * 100 : 0;
             document.getElementById('progressBarFill').style.width = progress + '%';
@@ -914,39 +1091,121 @@
             const tableHead = document.querySelector('#arxivTable thead tr');
             tableHead.innerHTML = `
                 <th class="number-cell">序号</th>
-                <th>分析结果</th>
+                <th class="filter-cell">筛选结果</th>
+                <th class="score-cell">原始分</th>
+                <th class="score-cell">标准分</th>
+                <th class="details-cell">详细分析</th>
                 <th>标题</th>
-                <th>作者</th>
-                <th>摘要</th>
+                <th class="authors-cell">作者</th>
+                <th class="abstract-cell">摘要</th>
                 <th>链接</th>
             `;
 
             articles.forEach(article => {
                 const row = document.createElement('tr');
                 
-                // 处理分析结果显示
-                let analysisDisplay = article.analysis_result || '无分析结果';
+                // 解析分析结果JSON
+                let analysisObj = {};
+                let passFilter = false;
+                let rawScore = 0;
+                let normScore = 0;
+                let reason = '';
+                let excludeReason = '';
+                let detailsHtml = '';
+                
                 try {
-                    const analysisObj = JSON.parse(article.analysis_result);
-                    analysisDisplay = Object.keys(analysisObj).map(key => 
-                        `${key}: ${JSON.stringify(analysisObj[key])}`
-                    ).join('; ');
+                    analysisObj = JSON.parse(article.analysis_result || '{}');
+                    passFilter = analysisObj.pass_filter || false;
+                    rawScore = analysisObj.raw_score || 0;
+                    normScore = analysisObj.norm_score || 0;
+                    reason = analysisObj.reason || '';
+                    excludeReason = analysisObj.exclude_reason || '';
+                    
+                    // 构建详细分析显示
+                    if (passFilter) {
+                        // 通过筛选的论文显示详细信息
+                        let coreFeatures = [];
+                        let plusFeatures = [];
+                        
+                        if (analysisObj.core_features) {
+                            Object.entries(analysisObj.core_features).forEach(([key, value]) => {
+                                if (value > 0) {
+                                    coreFeatures.push(`${key}: ${value}`);
+                                }
+                            });
+                        }
+                        
+                        if (analysisObj.plus_features) {
+                            Object.entries(analysisObj.plus_features).forEach(([key, value]) => {
+                                if (value > 0) {
+                                    plusFeatures.push(`${key}: ${value}`);
+                                }
+                            });
+                        }
+                        
+                        detailsHtml = `
+                            <div class="analysis-details">
+                                <div class="analysis-reason"><strong>评价理由:</strong> ${reason}</div>
+                                ${coreFeatures.length > 0 ? `<div class="analysis-core"><strong>核心特征:</strong> ${coreFeatures.join(', ')}</div>` : ''}
+                                ${plusFeatures.length > 0 ? `<div class="analysis-plus"><strong>加分特征:</strong> ${plusFeatures.join(', ')}</div>` : ''}
+                                <div class="analysis-raw">
+                                    <span class="raw-json-toggle" onclick="toggleRawJson('raw-${article.number}')">查看原始JSON ▼</span>
+                                    <div class="raw-json" id="raw-${article.number}" style="display: none;">
+                                        <pre>${JSON.stringify(analysisObj, null, 2)}</pre>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    } else {
+                        // 未通过筛选的论文显示排除原因
+                        detailsHtml = `
+                            <div class="analysis-details">
+                                <div class="analysis-reason"><strong>排除原因:</strong> ${excludeReason || reason}</div>
+                                <div class="analysis-raw">
+                                    <span class="raw-json-toggle" onclick="toggleRawJson('raw-${article.number}')">查看原始JSON ▼</span>
+                                    <div class="raw-json" id="raw-${article.number}" style="display: none;">
+                                        <pre>${JSON.stringify(analysisObj, null, 2)}</pre>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }
                 } catch (e) {
-                    // 如果不是JSON，直接显示
+                    detailsHtml = `<div class="analysis-error">分析结果解析错误: ${article.analysis_result}</div>`;
+                }
+
+                // 设置行样式（通过筛选的论文高亮显示）
+                if (passFilter) {
+                    row.classList.add('passed-filter');
                 }
 
                 row.innerHTML = `
                     <td class="number-cell">${article.number}</td>
-                    <td class="abstract-cell">
-                        <div class="abstract-content" id="analysis-${article.number}">
-                            ${analysisDisplay}
-                        </div>
-                        <span class="abstract-toggle" onclick="toggleAbstract('analysis-${article.number}')">
-                            展开/收起
+                    <td class="filter-cell">
+                        <span class="filter-result ${passFilter ? 'passed' : 'rejected'}">
+                            ${passFilter ? '✅' : '❌'}
                         </span>
                     </td>
+                    <td class="score-cell">
+                        <div class="score-display">
+                            <span class="score-values">${rawScore}</span>
+                        </div>
+                    </td>
+                    <td class="score-cell">
+                        <div class="score-display">
+                            <span class="score-values">${normScore}</span>
+                        </div>
+                    </td>
+                    <td class="details-cell">
+                        ${detailsHtml}
+                    </td>
                     <td class="title-cell">${article.title}</td>
-                    <td class="authors-cell">${article.authors}</td>
+                    <td class="authors-cell">
+                        <div class="authors-content" id="authors-${article.number}">
+                            ${article.authors}
+                        </div>
+                        ${article.authors.length > 100 ? `<span class="authors-toggle" onclick="toggleAuthors('authors-${article.number}')">展开/收起</span>` : ''}
+                    </td>
                     <td class="abstract-cell">
                         <div class="abstract-content" id="abstract-${article.number}">
                             ${article.abstract}
