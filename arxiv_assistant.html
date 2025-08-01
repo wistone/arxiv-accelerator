@@ -691,7 +691,7 @@
                 <button class="btn btn-primary" onclick="searchArticles()">
                     🔍 搜索文章列表
                 </button>
-                <button class="btn btn-secondary" id="analyzeBtn" onclick="analyzeArticles()" disabled>
+                <button class="btn btn-secondary" id="analyzeBtn" onclick="analyzeArticlesImproved()" disabled>
                     📊 分析
                 </button>
             </div>
@@ -822,6 +822,46 @@
         let progressCheckInterval = null;
         let analysisStartTime = null;
         let lastProgressUpdate = null;
+        
+        // 初始化页面事件监听器
+        function initializeEventListeners() {
+            // 监听日期和类别变化，重置分析选项
+            document.getElementById('dateSelect').addEventListener('change', resetAnalysisOptions);
+            document.getElementById('categorySelect').addEventListener('change', resetAnalysisOptions);
+        }
+        
+        // 重置分析选项到默认状态
+        function resetAnalysisOptions() {
+            const testCountSelect = document.getElementById('testCount');
+            const analysisStatus = document.getElementById('analysisStatus');
+            
+            // 恢复默认的所有选项
+            testCountSelect.innerHTML = `
+                <option value="">全部分析</option>
+                <option value="5">仅前5篇</option>
+                <option value="10">仅前10篇</option>
+                <option value="20">仅前20篇</option>
+            `;
+            
+            // 清空状态提示
+            analysisStatus.innerHTML = '';
+            
+            console.log('🔄 已重置分析选项到默认状态');
+        }
+        
+        // 改进后的分析文章函数，先重置选项再检查
+        async function analyzeArticlesImproved() {
+            if (!hasSearched || currentArticles.length === 0) {
+                showError('请先搜索文章列表');
+                return;
+            }
+
+            // 先重置分析选项为默认状态
+            resetAnalysisOptions();
+            
+            // 然后调用原来的分析逻辑
+            await analyzeArticles();
+        }
 
         async function searchArticles() {
             const selectedDate = document.getElementById('dateSelect').value;
@@ -1604,6 +1644,12 @@
         // 页面加载完成后的初始化
         document.addEventListener('DOMContentLoaded', async function() {
             console.log('Arxiv文章初筛小助手已加载完成');
+            
+            // 初始化事件监听器
+            initializeEventListeners();
+            
+            // 初始化分析选项为默认状态
+            resetAnalysisOptions();
             
             // 加载可用的日期列表
             try {
