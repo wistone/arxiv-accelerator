@@ -158,10 +158,15 @@ jobs:
           # 确保log目录存在
           mkdir -p log
           
+          # 记录写入前的状态
+          echo "📋 写入前的log目录文件列表:"
+          ls -la log/ || echo "log目录为空"
+          
           # 使用Python脚本处理JSON并写入文件
           python3 -c "
           import json
           import os
+          import hashlib
           
           # 读取API响应
           with open('backup_response.json', 'r', encoding='utf-8') as f:
@@ -177,6 +182,10 @@ jobs:
               exit(0)
           
           # 写入每个文件
+          files_written = 0
+          files_updated = 0
+          files_unchanged = 0
+          
           for filename, file_info in files.items():
               filepath = file_info['path']
               content = file_info['content']
@@ -184,30 +193,99 @@ jobs:
               # 确保目录存在
               os.makedirs(os.path.dirname(filepath), exist_ok=True)
               
+              # 检查文件是否已存在且内容相同
+              file_exists = os.path.exists(filepath)
+              content_changed = True
+              
+              if file_exists:
+                  with open(filepath, 'r', encoding='utf-8') as f:
+                      existing_content = f.read()
+                  content_changed = existing_content != content
+              
               # 写入文件
               with open(filepath, 'w', encoding='utf-8') as f:
                   f.write(content)
               
-              print(f'✅ 写入文件: {filepath} ({file_info[\"size\"]} 字符)')
+              # 统计
+              if not file_exists:
+                  files_written += 1
+                  print(f'✅ 新建文件: {filepath} ({file_info[\"size\"]} 字符)')
+              elif content_changed:
+                  files_updated += 1
+                  print(f'✅ 更新文件: {filepath} ({file_info[\"size\"]} 字符)')
+              else:
+                  files_unchanged += 1
+                  print(f'ℹ️  文件无变化: {filepath} ({file_info[\"size\"]} 字符)')
           
-          print(f'🎉 成功写入 {len(files)} 个文件')
+          print(f'🎉 处理完成: 新建{files_written}个, 更新{files_updated}个, 无变化{files_unchanged}个')
+          print(f'📊 总计: {len(files)} 个文件')
           "
+          
+          # 记录写入后的状态
+          echo "📋 写入后的log目录文件列表:"
+          ls -la log/
+          
+          # 显示Git对这些文件的感知
+          echo "📝 Git对log目录的状态感知:"
+          git status log/ || echo "Git无法获取log目录状态"
 
       - name: 🔍 检查Git变更
         if: steps.get_files.outputs.has_files == 'true'
         id: check_changes
         run: |
-          # 检查是否有变更
-          if git diff --quiet && git diff --cached --quiet; then
-            echo "ℹ️  没有文件变更，无需提交"
+          echo "🔍 详细检查Git状态..."
+          
+          # 显示当前Git状态
+          echo "📋 Git状态概览:"
+          git status
+          
+          # 显示未暂存的变更
+          echo "📝 未暂存的变更:"
+          git diff --name-only || echo "无未暂存变更"
+          
+          # 显示已暂存的变更  
+          echo "📝 已暂存的变更:"
+          git diff --cached --name-only || echo "无已暂存变更"
+          
+          # 显示未跟踪的文件
+          echo "📝 未跟踪的文件:"
+          git ls-files --others --exclude-standard || echo "无未跟踪文件"
+          
+          # 检查log目录的具体变更
+          echo "📝 log目录变更详情:"
+          git status --porcelain log/ || echo "log目录无变更"
+          
+          # 手动添加所有log目录的分析文件
+          echo "📤 手动添加log目录的分析文件..."
+          
+          # 使用find命令确保所有分析文件都被添加
+          find log -name "*-analysis*.md" -type f -exec git add {} \; 2>/dev/null || echo "没有找到匹配的分析文件"
+          
+          # 备用方法：直接添加整个log目录
+          git add log/ 2>/dev/null || echo "添加log目录失败"
+          
+          # 再次检查是否有变更（包括已暂存的）
+          # 获取已暂存的文件列表
+          STAGED_FILES=$(git diff --cached --name-only)
+          
+          if [ -z "$STAGED_FILES" ]; then
+            echo "ℹ️  确认没有文件变更，无需提交"
             echo "has_changes=false" >> $GITHUB_OUTPUT
           else
-            echo "📝 检测到文件变更"
+            echo "📝 检测到文件变更（已暂存）"
             echo "has_changes=true" >> $GITHUB_OUTPUT
             
-            # 显示变更的文件
-            echo "📋 变更的文件:"
-            git status --porcelain
+            # 显示即将提交的变更
+            echo "📋 即将提交的文件:"
+            echo "$STAGED_FILES"
+            
+            # 显示变更统计
+            echo "📊 变更统计:"
+            git diff --cached --stat
+            
+            # 显示变更数量
+            FILE_COUNT=$(echo "$STAGED_FILES" | wc -l)
+            echo "📊 变更文件数量: $FILE_COUNT"
           fi
 
       - name: 💾 提交并推送变更
