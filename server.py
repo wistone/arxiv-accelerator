@@ -681,7 +681,7 @@ def get_available_dates():
 def trigger_backup():
     """
     内部备份API - 通过GitHub Actions触发
-    需要密钥验证，防止未授权访问
+    返回需要备份的文件列表和内容，由GitHub Actions执行Git操作
     """
     # 获取备份密钥
     SECRET = os.getenv("BACKUP_SECRET", "change-me-please")
@@ -703,64 +703,75 @@ def trigger_backup():
     print("🔐 备份请求签名验证通过")
     
     try:
-        # 执行备份脚本
-        print("🚀 开始执行备份操作...")
+        print("🚀 开始检查需要备份的文件...")
         
-        # 检查脚本是否存在
-        script_path = "backup_logs.sh"
-        if not os.path.exists(script_path):
-            # 如果backup_logs.sh不存在，使用Python脚本
-            script_path = "auto_commit_logs.py"
-            if os.path.exists(script_path):
-                print(f"📝 使用Python备份脚本: {script_path}")
-                result = subprocess.run(
-                    ["python", script_path, "--quiet"], 
-                    capture_output=True, 
-                    text=True,
-                    encoding='utf-8'
-                )
-            else:
-                return {"ok": False, "error": "备份脚本不存在"}, 500
-        else:
-            print(f"📝 使用Bash备份脚本: {script_path}")
-            result = subprocess.run(
-                ["bash", script_path], 
-                capture_output=True, 
-                text=True,
-                encoding='utf-8'
-            )
-        
-        output = result.stdout + result.stderr
-        
-        if result.returncode == 0:
-            print("✅ 备份操作执行成功")
-            print(f"📤 输出: {output}")
+        # 检查log目录
+        log_dir = "log"
+        if not os.path.exists(log_dir):
             return {
                 "ok": True, 
-                "message": "备份操作执行成功",
-                "output": output,
+                "message": "log目录不存在，无需备份",
+                "files": [],
                 "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             }
-        else:
-            print(f"❌ 备份操作执行失败，返回码: {result.returncode}")
-            print(f"📤 错误输出: {output}")
+        
+        # 查找所有分析文件
+        analysis_files = []
+        for filename in os.listdir(log_dir):
+            if "-analysis" in filename and filename.endswith(".md"):
+                filepath = os.path.join(log_dir, filename)
+                if os.path.isfile(filepath):
+                    analysis_files.append(filename)
+        
+        if not analysis_files:
+            return {
+                "ok": True, 
+                "message": "没有找到分析文件，无需备份",
+                "files": [],
+                "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+        
+        print(f"📄 发现 {len(analysis_files)} 个分析文件")
+        
+        # 读取文件内容
+        file_contents = {}
+        for filename in analysis_files:
+            filepath = os.path.join(log_dir, filename)
+            try:
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                file_contents[filename] = {
+                    "path": f"log/{filename}",
+                    "content": content,
+                    "size": len(content)
+                }
+                print(f"   ✅ 读取文件: {filename} ({len(content)} 字符)")
+            except Exception as e:
+                print(f"   ❌ 读取文件失败: {filename} - {e}")
+                continue
+        
+        if not file_contents:
             return {
                 "ok": False, 
-                "error": f"备份脚本执行失败 (返回码: {result.returncode})",
-                "output": output
+                "error": "无法读取任何分析文件",
+                "files": []
             }, 500
-            
-    except subprocess.CalledProcessError as e:
-        error_msg = f"备份脚本执行失败: {e}"
-        print(f"❌ {error_msg}")
+        
+        print("✅ 文件内容读取完成")
         return {
-            "ok": False, 
-            "error": error_msg,
-            "output": getattr(e, 'output', '').decode() if hasattr(e, 'output') else str(e)
-        }, 500
+            "ok": True, 
+            "message": f"成功读取 {len(file_contents)} 个分析文件",
+            "files": file_contents,
+            "file_count": len(file_contents),
+            "total_size": sum(f["size"] for f in file_contents.values()),
+            "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+            
     except Exception as e:
-        error_msg = f"备份操作异常: {str(e)}"
+        error_msg = f"备份检查异常: {str(e)}"
         print(f"❌ {error_msg}")
+        import traceback
+        traceback.print_exc()
         return {
             "ok": False, 
             "error": error_msg

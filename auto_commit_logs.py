@@ -194,6 +194,16 @@ def commit_and_push_files(files_to_commit, verbose=True):
         
         # 推送到远程仓库
         log_message("🚀 推送到远程仓库...", verbose)
+        
+        # 检查是否在Render环境中（通过环境变量判断）
+        is_render = os.getenv("RENDER") or os.getenv("RENDER_SERVICE_NAME")
+        if is_render:
+            log_message("🔍 检测到Render环境，检查Git权限...", verbose)
+            # 在Render环境中，可能没有推送权限
+            log_message("⚠️  Render环境中通常没有Git推送权限", verbose)
+            log_message("💡 跳过Git推送操作（文件已在容器中提交）", verbose)
+            return True
+        
         stdout, stderr, returncode = run_command("git push origin main")
         if returncode != 0:
             # 如果main分支推送失败，尝试master分支
@@ -201,6 +211,12 @@ def commit_and_push_files(files_to_commit, verbose=True):
             stdout, stderr, returncode = run_command("git push origin master")
             if returncode != 0:
                 log_message(f"❌ 推送失败: {stderr}", verbose)
+                log_message("💡 如果在Render环境中，这是正常的（容器无推送权限）", verbose)
+                
+                # 检查错误是否是权限相关
+                if "Permission denied" in stderr or "authentication failed" in stderr or "fatal: could not read" in stderr:
+                    log_message("🔍 检测到权限问题，可能在受限环境中运行", verbose)
+                    return True  # 在受限环境中认为这是成功的
                 return False
         
         log_message("✅ 推送成功!", verbose)

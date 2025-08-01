@@ -38,9 +38,21 @@ jobs:
           fi
           echo "✅ 备份密钥已配置"
 
-      - name: 🌐 触发Render备份API
+      - name: 📥 Checkout 仓库
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🔧 配置 Git
         run: |
-          echo "🚀 开始触发备份操作..."
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+
+      - name: 🌐 获取Render服务器的文件
+        id: get_files
+        run: |
+          echo "🚀 开始从Render获取分析文件..."
           
           # 计算HMAC签名
           SIGNATURE=$(echo -n "run" | openssl dgst -sha256 -hmac "${{ secrets.BACKUP_SECRET }}" | cut -d' ' -f2)
@@ -54,7 +66,7 @@ jobs:
             CURL_OPTIONS="-s"
           fi
           
-          # 调用备份API
+          # 调用备份API获取文件
           echo "📡 调用备份API..."
           RESPONSE=$(curl -X POST \
             -H "X-Backup-Sign: $SIGNATURE" \
@@ -71,13 +83,25 @@ jobs:
           echo "📊 API响应状态: $HTTP_STATUS"
           
           if [ "$HTTP_STATUS" = "200" ]; then
-            echo "✅ 备份操作成功!"
-            echo "📄 响应内容:"
-            echo "$RESPONSE_BODY" | jq '.' 2>/dev/null || echo "$RESPONSE_BODY"
+            echo "✅ 成功获取文件列表!"
+            
+            # 保存响应到文件
+            echo "$RESPONSE_BODY" > backup_response.json
+            
+            # 解析文件数量
+            FILE_COUNT=$(echo "$RESPONSE_BODY" | jq -r '.file_count // 0')
+            echo "📄 文件数量: $FILE_COUNT"
+            
+            if [ "$FILE_COUNT" -gt 0 ]; then
+              echo "has_files=true" >> $GITHUB_OUTPUT
+              echo "file_count=$FILE_COUNT" >> $GITHUB_OUTPUT
+            else
+              echo "has_files=false" >> $GITHUB_OUTPUT
+              echo "ℹ️  没有需要备份的文件"
+            fi
           else
-            echo "❌ 备份操作失败!"
-            echo "📄 错误响应:"
-            echo "$RESPONSE_BODY"
+            echo "❌ 获取文件失败!"
+            echo "📄 错误响应: $RESPONSE_BODY"
             
             # 根据状态码提供具体的错误信息
             case $HTTP_STATUS in
@@ -94,36 +118,132 @@ jobs:
                 echo "💡 无法连接到服务器，可能服务器正在睡眠状态"
                 echo "🔄 尝试再次调用以唤醒服务..."
                 sleep 10
-                curl -X POST \
+                # 重试一次
+                RETRY_RESPONSE=$(curl -X POST \
                   -H "X-Backup-Sign: $SIGNATURE" \
                   -H "Content-Type: application/json" \
                   $CURL_OPTIONS \
-                  https://arxiv-accelerator.onrender.com/internal/backup || echo "⚠️  唤醒尝试失败"
+                  -w "HTTP_STATUS:%{http_code}" \
+                  https://arxiv-accelerator.onrender.com/internal/backup)
+                
+                RETRY_STATUS=$(echo "$RETRY_RESPONSE" | grep -o "HTTP_STATUS:[0-9]*" | cut -d: -f2)
+                if [ "$RETRY_STATUS" = "200" ]; then
+                  echo "✅ 重试成功!"
+                  RETRY_BODY=$(echo "$RETRY_RESPONSE" | sed 's/HTTP_STATUS:[0-9]*$//')
+                  echo "$RETRY_BODY" > backup_response.json
+                  FILE_COUNT=$(echo "$RETRY_BODY" | jq -r '.file_count // 0')
+                  if [ "$FILE_COUNT" -gt 0 ]; then
+                    echo "has_files=true" >> $GITHUB_OUTPUT
+                    echo "file_count=$FILE_COUNT" >> $GITHUB_OUTPUT
+                  else
+                    echo "has_files=false" >> $GITHUB_OUTPUT
+                  fi
+                else
+                  echo "❌ 重试也失败了"
+                  exit 1
+                fi
                 ;;
             esac
             
-            exit 1
+            if [ "$HTTP_STATUS" != "000" ]; then
+              exit 1
+            fi
           fi
 
-      - name: 📊 备份统计
-        if: success()
+      - name: 📝 写入文件到仓库
+        if: steps.get_files.outputs.has_files == 'true'
         run: |
-          echo "🎉 定时备份任务完成!"
+          echo "📝 开始写入文件到仓库..."
+          
+          # 确保log目录存在
+          mkdir -p log
+          
+          # 使用Python脚本处理JSON并写入文件
+          python3 -c "
+          import json
+          import os
+          
+          # 读取API响应
+          with open('backup_response.json', 'r', encoding='utf-8') as f:
+              data = json.load(f)
+          
+          if not data.get('ok', False):
+              print('❌ API响应表示操作失败')
+              exit(1)
+          
+          files = data.get('files', {})
+          if not files:
+              print('ℹ️  没有文件需要写入')
+              exit(0)
+          
+          # 写入每个文件
+          for filename, file_info in files.items():
+              filepath = file_info['path']
+              content = file_info['content']
+              
+              # 确保目录存在
+              os.makedirs(os.path.dirname(filepath), exist_ok=True)
+              
+              # 写入文件
+              with open(filepath, 'w', encoding='utf-8') as f:
+                  f.write(content)
+              
+              print(f'✅ 写入文件: {filepath} ({file_info[\"size\"]} 字符)')
+          
+          print(f'🎉 成功写入 {len(files)} 个文件')
+          "
+
+      - name: 🔍 检查Git变更
+        if: steps.get_files.outputs.has_files == 'true'
+        id: check_changes
+        run: |
+          # 检查是否有变更
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "ℹ️  没有文件变更，无需提交"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "📝 检测到文件变更"
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            
+            # 显示变更的文件
+            echo "📋 变更的文件:"
+            git status --porcelain
+          fi
+
+      - name: 💾 提交并推送变更
+        if: steps.check_changes.outputs.has_changes == 'true'
+        run: |
+          echo "💾 提交文件变更..."
+          
+          # 添加所有log目录的分析文件
+          git add log/*-analysis*.md
+          
+          # 生成提交信息
+          COMMIT_MESSAGE="Log: Auto Update $(date '+%Y-%m-%d %H:%M:%S')"
+          echo "📝 提交信息: $COMMIT_MESSAGE"
+          
+          # 提交
+          git commit -m "$COMMIT_MESSAGE"
+          
+          # 推送
+          echo "📤 推送到远程仓库..."
+          git push origin main
+          
+          echo "✅ 备份提交推送成功!"
+
+      - name: 📊 备份统计
+        if: always()
+        run: |
+          echo "🎉 自动备份任务完成!"
           echo "📈 统计信息:"
           echo "   - 执行时间: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           echo "   - 北京时间: $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S CST')"
-          echo "   - 下次执行: 2小时后"
-          echo "   - 备份方式: GitHub Actions → Render API"
+          echo "   - 文件数量: ${{ steps.get_files.outputs.file_count || '0' }}"
+          echo "   - 是否有变更: ${{ steps.check_changes.outputs.has_changes || 'false' }}"
+          echo "   - 下次执行: 1小时后"
+          echo "   - 备份方式: Render API → GitHub Actions Git"
 
-      - name: 🚨 失败通知
-        if: failure()
+      - name: 🧹 清理临时文件
+        if: always()
         run: |
-          echo "💥 备份任务失败!"
-          echo "🔍 故障排查建议:"
-          echo "   1. 检查BACKUP_SECRET密钥是否正确配置"
-          echo "   2. 确认Render服务是否正常运行"
-          echo "   3. 查看Render服务器日志获取详细错误"
-          echo "   4. 检查网络连接是否正常"
-          echo ""
-          echo "🛠️  手动测试命令:"
-          echo '   curl -X POST -H "X-Backup-Sign: YOUR_SIGNATURE" https://arxiv-accelerator.onrender.com/internal/backup'
+          rm -f backup_response.json

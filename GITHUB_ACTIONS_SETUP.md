@@ -15,11 +15,18 @@
 GitHub Actions (定时触发) 
     ↓ HTTP POST请求
 Render服务器 (/internal/backup API)
-    ↓ 执行内部脚本
-auto_commit_logs.py (Git提交推送)
-    ↓ 结果返回
-GitHub Actions (显示状态)
+    ↓ 读取并返回分析文件内容
+GitHub Actions (接收文件内容)
+    ↓ 写入文件到仓库
+GitHub Actions (Git提交推送)
+    ↓ 完成备份
 ```
+
+**关键优势**：
+- **解决权限问题**: Render容器无需Git推送权限
+- **数据安全**: 只传输必要的文件内容，不涉及Git凭据
+- **容错性强**: GitHub Actions处理Git操作更稳定
+- **监控完善**: 可以在GitHub查看所有备份历史
 
 ## 🛠️ 配置步骤
 
@@ -220,20 +227,22 @@ schedule:
 ### 手动测试命令
 
 ```bash
-# 1. 测试auto_commit_logs.py脚本
-python auto_commit_logs.py --quiet
-
-# 2. 测试backup_logs.sh脚本  
-bash backup_logs.sh
-
-# 3. 测试API签名生成
+# 1. 测试API签名生成
 echo -n "run" | openssl dgst -sha256 -hmac "your-secret-here" | cut -d' ' -f2
 
-# 4. 测试完整API调用
+# 2. 测试备份API调用
 curl -X POST \
   -H "X-Backup-Sign: your-signature-here" \
+  -H "Content-Type: application/json" \
   -v \
   https://arxiv-accelerator.onrender.com/internal/backup
+
+# 3. 查看API响应格式
+curl -X POST \
+  -H "X-Backup-Sign: your-signature-here" \
+  -H "Content-Type: application/json" \
+  -s \
+  https://arxiv-accelerator.onrender.com/internal/backup | jq '.'
 ```
 
 ## 💰 成本分析
