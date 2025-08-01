@@ -25,6 +25,49 @@
             border-radius: 15px;
             box-shadow: 0 20px 40px rgba(0,0,0,0.1);
             overflow: hidden;
+            transition: max-width 0.3s ease;
+        }
+
+        /* 分析模式下使用更宽的容器 */
+        .container.analysis-mode {
+            max-width: 1600px;
+        }
+
+        /* 分析模式下的响应式设计 */
+        @media (max-width: 1650px) {
+            .container.analysis-mode {
+                max-width: 95%;
+                margin: 0 2.5%;
+            }
+        }
+
+        /* 移动设备上的优化 */
+        @media (max-width: 768px) {
+            .container.analysis-mode {
+                max-width: 100%;
+                margin: 0;
+                border-radius: 0;
+            }
+            
+            body {
+                padding: 10px;
+            }
+        }
+
+        /* 分析模式下的表格优化 */
+        .container.analysis-mode .title-cell {
+            max-width: 350px; /* 在分析模式下增加标题列宽度 */
+            min-width: 280px;
+        }
+
+        .container.analysis-mode .authors-cell {
+            max-width: 180px; /* 在分析模式下略微减小作者列宽度 */
+            min-width: 140px;
+        }
+
+        .container.analysis-mode .abstract-cell {
+            max-width: 400px; /* 在分析模式下增加摘要列宽度 */
+            min-width: 300px;
         }
 
         .header {
@@ -897,6 +940,12 @@
                     
                     // 启用分析按钮
                     document.getElementById('analyzeBtn').disabled = false;
+                    
+                    // 切换到搜索模式（标准宽度）
+                    setSearchMode();
+                    
+                    // 更新URL状态
+                    updateUrlState('search', selectedDate, selectedCategory);
                 } else {
                     showError(data.error || '搜索失败');
                     // 禁用分析按钮
@@ -1316,6 +1365,9 @@
                     closeModal();
                     displayAnalysisResults(data.articles);
                     showSuccess(`成功加载 ${selectedRange} 分析结果，共 ${data.total} 篇论文`);
+                    
+                    // 更新URL状态
+                    updateUrlState('analysis', selectedDate, selectedCategory, selectedRange);
                     return;
                 }
             } catch (error) {
@@ -1600,6 +1652,9 @@
                 if (response.ok) {
                     displayAnalysisResults(data.articles);
                     showSuccess(`分析完成！共处理 ${data.total} 篇论文`);
+                    
+                    // 更新URL状态
+                    updateUrlState('analysis', selectedDate, selectedCategory, rangeTypeToLoad);
                 } else {
                     showError(data.error || '加载分析结果失败');
                 }
@@ -1612,6 +1667,9 @@
         function displayAnalysisResults(articles) {
             // 保存当前分析结果
             currentAnalysisArticles = articles;
+            
+            // 切换到分析模式（宽屏显示）
+            setAnalysisMode();
             
             const tableBody = document.getElementById('tableBody');
             tableBody.innerHTML = '';
@@ -1641,6 +1699,137 @@
             document.getElementById('tableContainer').style.display = 'block';
         }
 
+        // ========== 页面布局管理功能 ==========
+        
+        /**
+         * 设置页面为分析模式（更宽的容器）
+         */
+        function setAnalysisMode() {
+            const container = document.querySelector('.container');
+            if (!container.classList.contains('analysis-mode')) {
+                container.classList.add('analysis-mode');
+                console.log('🔧 页面已切换到分析模式（宽屏）');
+            }
+        }
+
+        /**
+         * 设置页面为搜索模式（标准容器宽度）
+         */
+        function setSearchMode() {
+            const container = document.querySelector('.container');
+            if (container.classList.contains('analysis-mode')) {
+                container.classList.remove('analysis-mode');
+                console.log('🔧 页面已切换到搜索模式（标准宽度）');
+            }
+        }
+
+        // ========== URL状态管理功能 ==========
+        
+        /**
+         * 解析当前URL的参数
+         * @returns {Object} 包含action, date, category, limit等参数的对象
+         */
+        function parseUrlParams() {
+            const urlParams = new URLSearchParams(window.location.search);
+            return {
+                action: urlParams.get('action'),
+                date: urlParams.get('date'),
+                category: urlParams.get('category'),
+                limit: urlParams.get('limit')
+            };
+        }
+
+        /**
+         * 更新URL状态，不刷新页面
+         * @param {string} action - 动作类型: 'search' 或 'analysis'
+         * @param {string} date - 日期
+         * @param {string} category - 分类
+         * @param {string} limit - 分析限制 (可选): 'top5', 'top10', 'top20', 'all'
+         */
+        function updateUrlState(action, date, category, limit = null) {
+            const params = new URLSearchParams();
+            
+            if (action) params.set('action', action);
+            if (date) params.set('date', date);
+            if (category) params.set('category', category);
+            if (limit) params.set('limit', limit);
+            
+            const newUrl = `${window.location.pathname}?${params.toString()}`;
+            
+            // 使用pushState更新URL，不刷新页面
+            window.history.pushState({ action, date, category, limit }, '', newUrl);
+            
+            console.log(`🔗 URL状态已更新: ${action} - ${date} - ${category}${limit ? ` - ${limit}` : ''}`);
+        }
+
+        /**
+         * 根据URL参数自动执行相应操作
+         * @param {Object} params - URL参数对象
+         */
+        async function executeFromUrlParams(params) {
+            const { action, date, category, limit } = params;
+            
+            if (!action || !date) {
+                console.log('📋 URL中没有有效的操作参数，使用默认状态');
+                return;
+            }
+            
+            console.log(`🚀 根据URL参数执行操作: ${action}`, params);
+            
+            // 设置表单值
+            if (date) {
+                const dateSelect = document.getElementById('dateSelect');
+                dateSelect.value = date;
+            }
+            
+            if (category) {
+                const categorySelect = document.getElementById('categorySelect');
+                categorySelect.value = category;
+            }
+            
+            // 根据action执行相应操作
+            if (action === 'search') {
+                await searchArticles();
+                // searchArticles 函数内部会调用 setSearchMode()
+            } else if (action === 'analysis') {
+                // 如果是分析操作，需要先确保已经搜索过
+                if (!hasSearched) {
+                    await searchArticles();
+                }
+                
+                // 设置分析参数
+                if (limit) {
+                    const testCountMap = {
+                        'top5': '5',
+                        'top10': '10', 
+                        'top20': '20',
+                        'all': ''
+                    };
+                    const testCount = testCountMap[limit] || '';
+                    document.getElementById('testCount').value = testCount;
+                }
+                
+                // 启动分析 - startAnalysis 会最终调用 displayAnalysisResults，其中会调用 setAnalysisMode()
+                await startAnalysis();
+            }
+        }
+
+        /**
+         * 处理浏览器前进/后退事件
+         */
+        function handlePopState(event) {
+            console.log('🔙 处理浏览器前进/后退事件');
+            
+            if (event.state) {
+                // 有状态信息，直接使用
+                executeFromUrlParams(event.state);
+            } else {
+                // 解析当前URL参数
+                const params = parseUrlParams();
+                executeFromUrlParams(params);
+            }
+        }
+
         // 页面加载完成后的初始化
         document.addEventListener('DOMContentLoaded', async function() {
             console.log('Arxiv文章初筛小助手已加载完成');
@@ -1648,8 +1837,14 @@
             // 初始化事件监听器
             initializeEventListeners();
             
+            // 添加浏览器前进/后退事件监听
+            window.addEventListener('popstate', handlePopState);
+            
             // 初始化分析选项为默认状态
             resetAnalysisOptions();
+            
+            // 初始化页面为搜索模式（标准宽度）
+            setSearchMode();
             
             // 加载可用的日期列表
             try {
@@ -1668,6 +1863,15 @@
                 }
             } catch (error) {
                 console.log('无法加载可用日期列表，使用默认设置');
+            }
+            
+            // 检查URL参数并自动执行相应操作
+            const urlParams = parseUrlParams();
+            if (urlParams.action) {
+                console.log('🔗 检测到URL参数，准备自动执行操作...');
+                await executeFromUrlParams(urlParams);
+            } else {
+                console.log('📋 未检测到URL参数，使用默认状态');
             }
         });
     </script>
