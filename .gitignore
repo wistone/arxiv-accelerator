@@ -2,6 +2,7 @@
 log/*
 !log/.gitkeep
 !log/*-analysis*
+log/cursor.log
 
 # Python缓存
 __pycache__/

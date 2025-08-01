@@ -34,7 +34,14 @@ class DoubaoClient:
         
         # 从环境变量获取模型ID
         if model is None:
-            model = os.getenv('DOUBAO_MODEL', 'ep-20250730235134-2q9zk')  # 使用默认模型
+            model = os.getenv('DOUBAO_MODEL')
+            if not model:
+                raise ValueError(
+                    "模型ID未提供。请设置环境变量 DOUBAO_MODEL 或传入 model 参数。\n"
+                    "设置方法：\n"
+                    "  Linux/Mac: export DOUBAO_MODEL='your-model-endpoint'\n"
+                    "  Windows: set DOUBAO_MODEL=your-model-endpoint"
+                )
         
         self.client = OpenAI(
             base_url="https://ark.cn-beijing.volces.com/api/v3",
