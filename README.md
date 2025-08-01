@@ -74,9 +74,6 @@ python test/test_doubao.py
 # Linux/Mac
 ./start.sh
 
-# Windows
-start.bat
-
 # 或手动启动
 python server.py
 ```
@@ -89,6 +86,65 @@ python server.py
 2. **搜索文章列表** - 爬取指定日期的论文
 3. **开始分析** - 使用AI对论文进行深度分析
 4. **查看结果** - 浏览分析结果，支持按总分排序
+
+## 🚀 生产环境部署
+
+### 方案一：Render 云部署（推荐）
+
+#### 1. 准备GitHub仓库
+```bash
+# 克隆项目到本地
+git clone https://github.com/yourusername/arxiv-accelerator.git
+cd arxiv-accelerator
+
+# 推送代码到GitHub
+git add .
+git commit -m "Initial commit"
+git push origin main
+```
+
+#### 2. 在Render创建服务
+1. 访问 [Render控制台](https://dashboard.render.com/)
+2. 点击 "New +" → "Web Service"
+3. 连接您的GitHub仓库
+4. 配置服务：
+   - **Name**: `arxiv-accelerator`
+   - **Environment**: `Python 3`
+   - **Build Command**: `pip install -r requirements.txt`
+   - **Start Command**: `python server.py`
+
+#### 3. 配置环境变量
+在Render服务设置中添加：
+```
+DOUBAO_API_KEY=your-doubao-api-key
+DOUBAO_MODEL=your-doubao-model-endpoint
+BACKUP_SECRET=your-backup-secret-key
+```
+
+#### 4. 配置自动备份
+参考 [Wiki文档](./wiki/README.md) 中的部署配置说明。
+
+### 方案二：本地部署
+
+#### 1. 安装依赖
+```bash
+pip install -r requirements.txt
+```
+
+#### 2. 配置环境变量
+```bash
+cp env.example .env
+# 编辑 .env 文件，填入您的API密钥
+```
+
+#### 3. 启动服务
+```bash
+python server.py
+```
+
+## 📚 详细文档
+
+- **[GitHub Actions自动备份](./wiki/GITHUB_ACTIONS_SETUP.md)** - 推荐的自动备份方案
 
 ## 📁 项目结构
 
@@ -108,10 +164,12 @@ arxiv-accelerator/
 │   └── demo_paper_analysis.py         # 分析功能演示
 ├── 📝 配置文件
 │   ├── requirements.txt               # Python依赖
-│   ├── start.sh / start.bat          # 启动脚本
-
+│   ├── start.sh                      # 启动脚本
 │   ├── env.example                   # 环境变量模板
 │   └── .gitignore                    # Git忽略文件
+├── 📚 文档
+│   └── wiki/                         # 详细文档
+│       └── GITHUB_ACTIONS_SETUP.md   # GitHub Actions配置
 ├── 📋 提示词
 │   └── prompt/
 │       └── system_prompt.md          # AI分析提示词

@@ -8,7 +8,7 @@
 - **触发器**: GitHub Actions (免费2000分钟/月)
 - **执行环境**: Render服务器容器内
 - **安全性**: HMAC密钥验证
-- **频率**: 每2小时自动执行
+- **频率**: 每1小时自动执行
 
 **工作原理**：
 ```
@@ -102,13 +102,11 @@ openssl rand -hex 32
 # 检查文件是否存在
 ls -la .github/workflows/auto-backup.yml
 ls -la server.py
-ls -la backup_logs.sh
 ls -la auto_commit_logs.py
 
 # 提交并推送到GitHub
 git add .github/workflows/auto-backup.yml
 git add server.py
-git add backup_logs.sh
 git commit -m "Add GitHub Actions auto backup feature"
 git push origin main
 ```
