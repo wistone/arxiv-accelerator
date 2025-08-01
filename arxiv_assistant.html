@@ -589,6 +589,35 @@
             background: #f0fff0 !important;
         }
 
+        /* 排序相关样式 */
+        .sortable {
+            cursor: pointer;
+            user-select: none;
+            position: relative;
+        }
+
+        .sortable:hover {
+            background: #e9ecef;
+        }
+
+        .sortable:hover .sort-indicator {
+            color: #667eea;
+            transform: scale(1.05);
+        }
+
+        .sort-indicator {
+            margin-left: 5px;
+            font-size: 14px;
+            color: #6c757d;
+            transition: all 0.2s ease;
+        }
+
+        .sort-indicator.active {
+            color: #667eea;
+            font-weight: bold;
+            transform: scale(1.1);
+        }
+
         @media (max-width: 768px) {
             .control-group {
                 flex-direction: column;
@@ -768,6 +797,9 @@
         // 全局变量
         let currentArticles = [];
         let hasSearched = false;
+        let currentAnalysisArticles = []; // 存储当前分析结果
+        let sortColumn = ''; // 当前排序列
+        let sortDirection = 'asc'; // 排序方向
 
         async function searchArticles() {
             const selectedDate = document.getElementById('dateSelect').value;
@@ -845,6 +877,202 @@
             });
 
             document.getElementById('tableContainer').style.display = 'block';
+        }
+
+        // 排序函数
+        function sortTable(column) {
+            if (!currentAnalysisArticles || currentAnalysisArticles.length === 0) {
+                return;
+            }
+
+            // 如果点击的是同一列，切换排序方向
+            if (sortColumn === column) {
+                sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+            } else {
+                // 如果点击的是新列，设置为升序
+                sortColumn = column;
+                sortDirection = 'asc';
+            }
+
+            // 更新排序指示器
+            updateSortIndicators(column, sortDirection);
+
+            // 排序数据
+            const sortedArticles = [...currentAnalysisArticles].sort((a, b) => {
+                let aValue, bValue;
+
+                // 解析分析结果获取分数
+                try {
+                    const aAnalysis = JSON.parse(a.analysis_result || '{}');
+                    const bAnalysis = JSON.parse(b.analysis_result || '{}');
+                    
+                    if (column === 'raw_score') {
+                        aValue = aAnalysis.raw_score || 0;
+                        bValue = bAnalysis.raw_score || 0;
+                    } else if (column === 'norm_score') {
+                        aValue = aAnalysis.norm_score || 0;
+                        bValue = bAnalysis.norm_score || 0;
+                    } else {
+                        return 0;
+                    }
+                } catch (e) {
+                    aValue = 0;
+                    bValue = 0;
+                }
+
+                // 根据排序方向返回比较结果
+                if (sortDirection === 'asc') {
+                    return aValue - bValue;
+                } else {
+                    return bValue - aValue;
+                }
+            });
+
+            // 重新显示排序后的数据
+            displaySortedResults(sortedArticles);
+        }
+
+        // 更新排序指示器
+        function updateSortIndicators(activeColumn, direction) {
+            // 清除所有指示器，恢复默认状态
+            const indicators = document.querySelectorAll('.sort-indicator');
+            indicators.forEach(indicator => {
+                indicator.textContent = '↕️';
+                indicator.classList.remove('active');
+            });
+
+            // 设置当前列的指示器
+            const activeIndicator = document.getElementById(`${activeColumn}_indicator`);
+            if (activeIndicator) {
+                activeIndicator.textContent = direction === 'asc' ? ' ↑' : ' ↓';
+                activeIndicator.classList.add('active');
+            }
+        }
+
+        // 显示排序后的结果
+        function displaySortedResults(articles) {
+            const tableBody = document.getElementById('tableBody');
+            tableBody.innerHTML = '';
+
+            articles.forEach(article => {
+                const row = document.createElement('tr');
+                
+                // 解析分析结果JSON
+                let analysisObj = {};
+                let passFilter = false;
+                let rawScore = 0;
+                let normScore = 0;
+                let reason = '';
+                let excludeReason = '';
+                let detailsHtml = '';
+                
+                try {
+                    analysisObj = JSON.parse(article.analysis_result || '{}');
+                    passFilter = analysisObj.pass_filter || false;
+                    rawScore = analysisObj.raw_score || 0;
+                    normScore = analysisObj.norm_score || 0;
+                    reason = analysisObj.reason || '';
+                    excludeReason = analysisObj.exclude_reason || '';
+                    
+                    // 构建详细分析显示
+                    if (passFilter) {
+                        // 通过筛选的论文显示详细信息
+                        let coreFeatures = [];
+                        let plusFeatures = [];
+                        
+                        if (analysisObj.core_features) {
+                            Object.entries(analysisObj.core_features).forEach(([key, value]) => {
+                                if (value > 0) {
+                                    coreFeatures.push(`${key}: ${value}`);
+                                }
+                            });
+                        }
+                        
+                        if (analysisObj.plus_features) {
+                            Object.entries(analysisObj.plus_features).forEach(([key, value]) => {
+                                if (value > 0) {
+                                    plusFeatures.push(`${key}: ${value}`);
+                                }
+                            });
+                        }
+                        
+                        detailsHtml = `
+                            <div class="analysis-details">
+                                <div class="analysis-reason"><strong>评价理由:</strong> ${reason}</div>
+                                ${coreFeatures.length > 0 ? `<div class="analysis-core"><strong>核心特征:</strong> ${coreFeatures.join(', ')}</div>` : ''}
+                                ${plusFeatures.length > 0 ? `<div class="analysis-plus"><strong>加分特征:</strong> ${plusFeatures.join(', ')}</div>` : ''}
+                                <div class="analysis-raw">
+                                    <span class="raw-json-toggle" onclick="toggleRawJson('raw-${article.number}')">查看原始JSON ▼</span>
+                                    <div class="raw-json" id="raw-${article.number}" style="display: none;">
+                                        <pre>${JSON.stringify(analysisObj, null, 2)}</pre>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    } else {
+                        // 未通过筛选的论文显示排除原因
+                        detailsHtml = `
+                            <div class="analysis-details">
+                                <div class="analysis-reason"><strong>排除原因:</strong> ${excludeReason || reason}</div>
+                                <div class="analysis-raw">
+                                    <span class="raw-json-toggle" onclick="toggleRawJson('raw-${article.number}')">查看原始JSON ▼</span>
+                                    <div class="raw-json" id="raw-${article.number}" style="display: none;">
+                                        <pre>${JSON.stringify(analysisObj, null, 2)}</pre>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                } catch (e) {
+                    detailsHtml = `<div class="analysis-error">分析结果解析错误: ${article.analysis_result}</div>`;
+                }
+
+                // 设置行样式（通过筛选的论文高亮显示）
+                if (passFilter) {
+                    row.classList.add('passed-filter');
+                }
+
+                row.innerHTML = `
+                    <td class="number-cell">${article.number}</td>
+                    <td class="filter-cell">
+                        <span class="filter-result ${passFilter ? 'passed' : 'rejected'}">
+                            ${passFilter ? '✅' : '❌'}
+                        </span>
+                    </td>
+                    <td class="score-cell">
+                        <div class="score-display">
+                            <span class="score-values">${rawScore}</span>
+                        </div>
+                    </td>
+                    <td class="score-cell">
+                        <div class="score-display">
+                            <span class="score-values">${normScore}</span>
+                        </div>
+                    </td>
+                    <td class="details-cell">
+                        ${detailsHtml}
+                    </td>
+                    <td class="title-cell">${article.title}</td>
+                    <td class="authors-cell">
+                        <div class="authors-content" id="authors-${article.number}">
+                            ${article.authors}
+                        </div>
+                        ${article.authors.length > 100 ? `<span class="authors-toggle" onclick="toggleAuthors('authors-${article.number}')">展开/收起</span>` : ''}
+                    </td>
+                    <td class="abstract-cell">
+                        <div class="abstract-content" id="abstract-${article.number}">
+                            ${article.abstract}
+                        </div>
+                        <span class="abstract-toggle" onclick="toggleAbstract('abstract-${article.number}')">
+                            展开/收起
+                        </span>
+                    </td>
+                    <td class="link-cell">
+                        <a href="${article.link}" target="_blank">查看论文</a>
+                    </td>
+                `;
+                tableBody.appendChild(row);
+            });
         }
 
         function toggleAbstract(elementId) {
@@ -1182,16 +1410,25 @@
         }
 
         function displayAnalysisResults(articles) {
+            // 保存当前分析结果
+            currentAnalysisArticles = articles;
+            
             const tableBody = document.getElementById('tableBody');
             tableBody.innerHTML = '';
 
-            // 更新表头为分析结果格式
+            // 更新表头为分析结果格式，添加排序功能
             const tableHead = document.querySelector('#arxivTable thead tr');
             tableHead.innerHTML = `
                 <th class="number-cell">序号</th>
                 <th class="filter-cell">筛选结果</th>
-                <th class="score-cell">原始分</th>
-                <th class="score-cell">标准分</th>
+                <th class="score-cell sortable" onclick="sortTable('raw_score')">
+                    原始分
+                    <span class="sort-indicator" id="raw_score_indicator">↕️</span>
+                </th>
+                <th class="score-cell sortable" onclick="sortTable('norm_score')">
+                    标准分
+                    <span class="sort-indicator" id="norm_score_indicator">↕️</span>
+                </th>
                 <th class="details-cell">详细分析</th>
                 <th>标题</th>
                 <th class="authors-cell">作者</th>
@@ -1199,126 +1436,13 @@
                 <th>链接</th>
             `;
 
-            articles.forEach(article => {
-                const row = document.createElement('tr');
-                
-                // 解析分析结果JSON
-                let analysisObj = {};
-                let passFilter = false;
-                let rawScore = 0;
-                let normScore = 0;
-                let reason = '';
-                let excludeReason = '';
-                let detailsHtml = '';
-                
-                try {
-                    analysisObj = JSON.parse(article.analysis_result || '{}');
-                    passFilter = analysisObj.pass_filter || false;
-                    rawScore = analysisObj.raw_score || 0;
-                    normScore = analysisObj.norm_score || 0;
-                    reason = analysisObj.reason || '';
-                    excludeReason = analysisObj.exclude_reason || '';
-                    
-                    // 构建详细分析显示
-                    if (passFilter) {
-                        // 通过筛选的论文显示详细信息
-                        let coreFeatures = [];
-                        let plusFeatures = [];
-                        
-                        if (analysisObj.core_features) {
-                            Object.entries(analysisObj.core_features).forEach(([key, value]) => {
-                                if (value > 0) {
-                                    coreFeatures.push(`${key}: ${value}`);
-                                }
-                            });
-                        }
-                        
-                        if (analysisObj.plus_features) {
-                            Object.entries(analysisObj.plus_features).forEach(([key, value]) => {
-                                if (value > 0) {
-                                    plusFeatures.push(`${key}: ${value}`);
-                                }
-                            });
-                        }
-                        
-                        detailsHtml = `
-                            <div class="analysis-details">
-                                <div class="analysis-reason"><strong>评价理由:</strong> ${reason}</div>
-                                ${coreFeatures.length > 0 ? `<div class="analysis-core"><strong>核心特征:</strong> ${coreFeatures.join(', ')}</div>` : ''}
-                                ${plusFeatures.length > 0 ? `<div class="analysis-plus"><strong>加分特征:</strong> ${plusFeatures.join(', ')}</div>` : ''}
-                                <div class="analysis-raw">
-                                    <span class="raw-json-toggle" onclick="toggleRawJson('raw-${article.number}')">查看原始JSON ▼</span>
-                                    <div class="raw-json" id="raw-${article.number}" style="display: none;">
-                                        <pre>${JSON.stringify(analysisObj, null, 2)}</pre>
-                                    </div>
-                                </div>
-                            </div>
-                        `;
-                    } else {
-                        // 未通过筛选的论文显示排除原因
-                        detailsHtml = `
-                            <div class="analysis-details">
-                                <div class="analysis-reason"><strong>排除原因:</strong> ${excludeReason || reason}</div>
-                                <div class="analysis-raw">
-                                    <span class="raw-json-toggle" onclick="toggleRawJson('raw-${article.number}')">查看原始JSON ▼</span>
-                                    <div class="raw-json" id="raw-${article.number}" style="display: none;">
-                                        <pre>${JSON.stringify(analysisObj, null, 2)}</pre>
-                                    </div>
-                                </div>
-                            </div>
-                        `;
-                    }
-                } catch (e) {
-                    detailsHtml = `<div class="analysis-error">分析结果解析错误: ${article.analysis_result}</div>`;
-                }
-
-                // 设置行样式（通过筛选的论文高亮显示）
-                if (passFilter) {
-                    row.classList.add('passed-filter');
-                }
-
-                row.innerHTML = `
-                    <td class="number-cell">${article.number}</td>
-                    <td class="filter-cell">
-                        <span class="filter-result ${passFilter ? 'passed' : 'rejected'}">
-                            ${passFilter ? '✅' : '❌'}
-                        </span>
-                    </td>
-                    <td class="score-cell">
-                        <div class="score-display">
-                            <span class="score-values">${rawScore}</span>
-                        </div>
-                    </td>
-                    <td class="score-cell">
-                        <div class="score-display">
-                            <span class="score-values">${normScore}</span>
-                        </div>
-                    </td>
-                    <td class="details-cell">
-                        ${detailsHtml}
-                    </td>
-                    <td class="title-cell">${article.title}</td>
-                    <td class="authors-cell">
-                        <div class="authors-content" id="authors-${article.number}">
-                            ${article.authors}
-                        </div>
-                        ${article.authors.length > 100 ? `<span class="authors-toggle" onclick="toggleAuthors('authors-${article.number}')">展开/收起</span>` : ''}
-                    </td>
-                    <td class="abstract-cell">
-                        <div class="abstract-content" id="abstract-${article.number}">
-                            ${article.abstract}
-                        </div>
-                        <span class="abstract-toggle" onclick="toggleAbstract('abstract-${article.number}')">
-                            展开/收起
-                        </span>
-                    </td>
-                    <td class="link-cell">
-                        <a href="${article.link}" target="_blank">查看论文</a>
-                    </td>
-                `;
-                tableBody.appendChild(row);
-            });
-
+            // 重置排序状态
+            sortColumn = '';
+            sortDirection = 'asc';
+            
+            // 使用排序后的显示函数来显示数据
+            displaySortedResults(articles);
+            
             document.getElementById('tableContainer').style.display = 'block';
         }
 
