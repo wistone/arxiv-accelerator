@@ -1,10 +1,13 @@
-from flask import Flask, jsonify, request, send_from_directory, Response
+from flask import Flask, jsonify, request, send_from_directory, Response, abort
 from flask_cors import CORS
 import os
 import re
 import json
 import time
 import threading
+import subprocess
+import hmac
+import hashlib
 from datetime import datetime
 
 # 加载环境变量文件
@@ -673,6 +676,95 @@ def get_available_dates():
         
     except Exception as e:
         return jsonify({'error': f'获取日期列表失败: {str(e)}'}), 500
+
+@app.route('/internal/backup', methods=['POST'])
+def trigger_backup():
+    """
+    内部备份API - 通过GitHub Actions触发
+    需要密钥验证，防止未授权访问
+    """
+    # 获取备份密钥
+    SECRET = os.getenv("BACKUP_SECRET", "change-me-please")
+    
+    # 验证签名
+    sig = request.headers.get("X-Backup-Sign")
+    if not sig:
+        print("❌ 备份请求缺少签名")
+        abort(403)
+    
+    # 计算期望的签名
+    expected_sig = hmac.new(SECRET.encode(), b"run", hashlib.sha256).hexdigest()
+    
+    # 安全比较签名
+    if not hmac.compare_digest(sig, expected_sig):
+        print(f"❌ 备份请求签名验证失败")
+        abort(403)
+    
+    print("🔐 备份请求签名验证通过")
+    
+    try:
+        # 执行备份脚本
+        print("🚀 开始执行备份操作...")
+        
+        # 检查脚本是否存在
+        script_path = "backup_logs.sh"
+        if not os.path.exists(script_path):
+            # 如果backup_logs.sh不存在，使用Python脚本
+            script_path = "auto_commit_logs.py"
+            if os.path.exists(script_path):
+                print(f"📝 使用Python备份脚本: {script_path}")
+                result = subprocess.run(
+                    ["python", script_path, "--quiet"], 
+                    capture_output=True, 
+                    text=True,
+                    encoding='utf-8'
+                )
+            else:
+                return {"ok": False, "error": "备份脚本不存在"}, 500
+        else:
+            print(f"📝 使用Bash备份脚本: {script_path}")
+            result = subprocess.run(
+                ["bash", script_path], 
+                capture_output=True, 
+                text=True,
+                encoding='utf-8'
+            )
+        
+        output = result.stdout + result.stderr
+        
+        if result.returncode == 0:
+            print("✅ 备份操作执行成功")
+            print(f"📤 输出: {output}")
+            return {
+                "ok": True, 
+                "message": "备份操作执行成功",
+                "output": output,
+                "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+        else:
+            print(f"❌ 备份操作执行失败，返回码: {result.returncode}")
+            print(f"📤 错误输出: {output}")
+            return {
+                "ok": False, 
+                "error": f"备份脚本执行失败 (返回码: {result.returncode})",
+                "output": output
+            }, 500
+            
+    except subprocess.CalledProcessError as e:
+        error_msg = f"备份脚本执行失败: {e}"
+        print(f"❌ {error_msg}")
+        return {
+            "ok": False, 
+            "error": error_msg,
+            "output": getattr(e, 'output', '').decode() if hasattr(e, 'output') else str(e)
+        }, 500
+    except Exception as e:
+        error_msg = f"备份操作异常: {str(e)}"
+        print(f"❌ {error_msg}")
+        return {
+            "ok": False, 
+            "error": error_msg
+        }, 500
 
 if __name__ == '__main__':
     print("启动Arxiv文章初筛小助手服务器...")

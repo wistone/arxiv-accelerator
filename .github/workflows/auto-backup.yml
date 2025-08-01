@@ -1,0 +1,129 @@
+name: 自动备份日志分析文件
+
+on:
+  schedule:
+    # 每1小时执行一次备份 (UTC时间)
+    - cron: '0 */1 * * *'
+  
+  # 允许手动触发
+  workflow_dispatch:
+    inputs:
+      debug:
+        description: '启用调试模式'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  backup-logs:
+    runs-on: ubuntu-latest
+    name: 备份分析文件到Git
+    
+    steps:
+      - name: 🔍 检查仓库环境
+        run: |
+          echo "📊 GitHub Actions环境信息:"
+          echo "   - 仓库: ${{ github.repository }}"
+          echo "   - 分支: ${{ github.ref_name }}"
+          echo "   - 触发事件: ${{ github.event_name }}"
+          echo "   - 工作流: ${{ github.workflow }}"
+          echo "   - 运行ID: ${{ github.run_id }}"
+
+      - name: 🔐 验证密钥配置
+        run: |
+          if [ -z "${{ secrets.BACKUP_SECRET }}" ]; then
+            echo "❌ 错误: BACKUP_SECRET未配置"
+            echo "💡 请在仓库Settings → Secrets中添加BACKUP_SECRET密钥"
+            exit 1
+          fi
+          echo "✅ 备份密钥已配置"
+
+      - name: 🌐 触发Render备份API
+        run: |
+          echo "🚀 开始触发备份操作..."
+          
+          # 计算HMAC签名
+          SIGNATURE=$(echo -n "run" | openssl dgst -sha256 -hmac "${{ secrets.BACKUP_SECRET }}" | cut -d' ' -f2)
+          echo "🔐 签名已生成"
+          
+          # 设置调试模式
+          if [ "${{ github.event.inputs.debug }}" = "true" ]; then
+            echo "🐛 调试模式已启用"
+            CURL_OPTIONS="-v"
+          else
+            CURL_OPTIONS="-s"
+          fi
+          
+          # 调用备份API
+          echo "📡 调用备份API..."
+          RESPONSE=$(curl -X POST \
+            -H "X-Backup-Sign: $SIGNATURE" \
+            -H "Content-Type: application/json" \
+            -H "User-Agent: GitHub-Actions-Backup-Bot/1.0" \
+            $CURL_OPTIONS \
+            -w "HTTP_STATUS:%{http_code}" \
+            https://arxiv-accelerator.onrender.com/internal/backup)
+          
+          # 解析响应
+          HTTP_STATUS=$(echo "$RESPONSE" | grep -o "HTTP_STATUS:[0-9]*" | cut -d: -f2)
+          RESPONSE_BODY=$(echo "$RESPONSE" | sed 's/HTTP_STATUS:[0-9]*$//')
+          
+          echo "📊 API响应状态: $HTTP_STATUS"
+          
+          if [ "$HTTP_STATUS" = "200" ]; then
+            echo "✅ 备份操作成功!"
+            echo "📄 响应内容:"
+            echo "$RESPONSE_BODY" | jq '.' 2>/dev/null || echo "$RESPONSE_BODY"
+          else
+            echo "❌ 备份操作失败!"
+            echo "📄 错误响应:"
+            echo "$RESPONSE_BODY"
+            
+            # 根据状态码提供具体的错误信息
+            case $HTTP_STATUS in
+              403)
+                echo "💡 签名验证失败，请检查BACKUP_SECRET密钥是否正确"
+                ;;
+              404)
+                echo "💡 备份API端点不存在，请确认服务器部署正常"
+                ;;
+              500)
+                echo "💡 服务器内部错误，请检查Render服务日志"
+                ;;
+              000)
+                echo "💡 无法连接到服务器，可能服务器正在睡眠状态"
+                echo "🔄 尝试再次调用以唤醒服务..."
+                sleep 10
+                curl -X POST \
+                  -H "X-Backup-Sign: $SIGNATURE" \
+                  -H "Content-Type: application/json" \
+                  $CURL_OPTIONS \
+                  https://arxiv-accelerator.onrender.com/internal/backup || echo "⚠️  唤醒尝试失败"
+                ;;
+            esac
+            
+            exit 1
+          fi
+
+      - name: 📊 备份统计
+        if: success()
+        run: |
+          echo "🎉 定时备份任务完成!"
+          echo "📈 统计信息:"
+          echo "   - 执行时间: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          echo "   - 北京时间: $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S CST')"
+          echo "   - 下次执行: 2小时后"
+          echo "   - 备份方式: GitHub Actions → Render API"
+
+      - name: 🚨 失败通知
+        if: failure()
+        run: |
+          echo "💥 备份任务失败!"
+          echo "🔍 故障排查建议:"
+          echo "   1. 检查BACKUP_SECRET密钥是否正确配置"
+          echo "   2. 确认Render服务是否正常运行"
+          echo "   3. 查看Render服务器日志获取详细错误"
+          echo "   4. 检查网络连接是否正常"
+          echo ""
+          echo "🛠️  手动测试命令:"
+          echo '   curl -X POST -H "X-Backup-Sign: YOUR_SIGNATURE" https://arxiv-accelerator.onrender.com/internal/backup'
