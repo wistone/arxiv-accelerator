@@ -2,6 +2,8 @@
 
 一个集成了论文爬取、智能分析和Web界面的完整工具，帮助研究人员高效筛选和分析Arxiv论文。
 
+https://arxiv-accelerator.onrender.com/
+
 ## 🌟 功能特点
 
 ### 📊 论文爬取
