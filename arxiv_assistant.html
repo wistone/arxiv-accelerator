@@ -981,7 +981,7 @@
             const tableBody = document.getElementById('tableBody');
             tableBody.innerHTML = '';
 
-            articles.forEach(article => {
+            articles.forEach((article, index) => {
                 const row = document.createElement('tr');
                 
                 // 解析分析结果JSON
@@ -1058,7 +1058,7 @@
                 }
 
                 row.innerHTML = `
-                    <td class="number-cell">${article.number}</td>
+                    <td class="number-cell">${index + 1}</td>
                     <td class="filter-cell">
                         <span class="filter-result ${passFilter ? 'passed' : 'rejected'}">
                             ${passFilter ? '✅' : '❌'}
