@@ -1,39 +1,65 @@
 import os
-from openai import OpenAI
+import sys
+
+# 添加父目录到Python路径以导入doubao_client
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# 加载环境变量
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    print("⚠️  python-dotenv未安装，使用系统环境变量")
+
+from doubao_client import DoubaoClient
 
 def test_doubao_model():
     """
     测试doubao1.6模型调用
     """
     try:
-        # 初始化Ark客户端
-        client = OpenAI(
-            base_url="https://ark.cn-beijing.volces.com/api/v3",
-            api_key="53a1f946-1d52-44e1-aecf-cdea96c58e97",  # 你的API Key
-        )
+        print("🧪 开始测试豆包API连接...")
+        print("📝 检查环境变量配置...")
         
-        print("正在调用doubao1.6模型...")
-        print("用户问题: 你是什么模型？")
-        print("-" * 50)
+        # 检查环境变量
+        api_key = os.getenv('DOUBAO_API_KEY')
+        model = os.getenv('DOUBAO_MODEL')
         
-        # 调用模型
-        response = client.chat.completions.create(
-            model="ep-20250730235134-2q9zk",  # 你的接入点ID
-            messages=[
-                {
-                    "role": "user",
-                    "content": "你是什么模型？"
-                }
-            ],
-        )
+        if not api_key:
+            print("❌ 环境变量 DOUBAO_API_KEY 未设置")
+            print("🔧 请设置环境变量或创建.env文件")
+            print("   Linux/Mac: export DOUBAO_API_KEY='your-api-key'")
+            print("   Windows: set DOUBAO_API_KEY=your-api-key")
+            return False
         
-        print("模型回复:")
-        print(response.choices[0].message.content)
-        print("-" * 50)
-        print("调用成功！")
+        print(f"✅ API密钥: {api_key[:10]}...{api_key[-4:]}")
+        print(f"✅ 模型ID: {model if model else '使用默认模型'}")
         
+        # 初始化客户端
+        client = DoubaoClient()
+        
+        print("\n🤖 测试模型调用...")
+        response = client.chat("你是什么模型？请简要介绍一下自己。")
+        
+        if response:
+            print("✅ 豆包API连接成功！")
+            return True
+        else:
+            print("❌ 豆包API调用失败")
+            return False
+        
+    except ValueError as e:
+        print(f"❌ 配置错误: {str(e)}")
+        return False
     except Exception as e:
-        print(f"调用失败: {str(e)}")
+        print(f"❌ 调用失败: {str(e)}")
+        return False
 
 if __name__ == "__main__":
-    test_doubao_model() 
+    success = test_doubao_model()
+    if success:
+        print("\n🎉 所有测试通过！")
+        sys.exit(0)
+    else:
+        print("\n💥 测试失败，请检查配置")
+        sys.exit(1) 

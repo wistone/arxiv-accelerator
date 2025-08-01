@@ -1,20 +1,41 @@
 import os
 from openai import OpenAI
 
+# 加载环境变量文件
+try:
+    from dotenv import load_dotenv
+    load_dotenv()  # 加载.env文件中的环境变量
+except ImportError:
+    pass  # 如果没有dotenv，继续使用系统环境变量
+
 class DoubaoClient:
     """
     Doubao1.6模型调用客户端
     """
     
-    def __init__(self, api_key="53a1f946-1d52-44e1-aecf-cdea96c58e97", 
-                 model="ep-20250730235134-2q9zk"):
+    def __init__(self, api_key=None, model=None):
         """
         初始化Doubao客户端
         
         Args:
-            api_key (str): API密钥
-            model (str): 模型接入点ID
+            api_key (str, optional): API密钥，如果未提供则从环境变量DOUBAO_API_KEY读取
+            model (str, optional): 模型接入点ID，如果未提供则从环境变量DOUBAO_MODEL读取
         """
+        # 从环境变量获取API密钥
+        if api_key is None:
+            api_key = os.getenv('DOUBAO_API_KEY')
+            if not api_key:
+                raise ValueError(
+                    "API密钥未提供。请设置环境变量 DOUBAO_API_KEY 或传入 api_key 参数。\n"
+                    "设置方法：\n"
+                    "  Linux/Mac: export DOUBAO_API_KEY='your-api-key'\n"
+                    "  Windows: set DOUBAO_API_KEY=your-api-key"
+                )
+        
+        # 从环境变量获取模型ID
+        if model is None:
+            model = os.getenv('DOUBAO_MODEL', 'ep-20250730235134-2q9zk')  # 使用默认模型
+        
         self.client = OpenAI(
             base_url="https://ark.cn-beijing.volces.com/api/v3",
             api_key=api_key,

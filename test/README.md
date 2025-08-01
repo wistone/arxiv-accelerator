@@ -15,7 +15,8 @@
 #### `test_doubao.py`
 - **功能**: 测试豆包API连接
 - **用途**: 验证API配置和网络连接
-- **特点**: 简单的API调用测试
+- **特点**: 检查环境变量配置，测试API调用
+- **前提**: 需要配置 `DOUBAO_API_KEY` 环境变量
 - **运行**: `python test/test_doubao.py`
 
 #### `test_historical_dates.py`
@@ -46,18 +47,29 @@
 
 ## 🚀 快速测试
 
+### 环境准备
+在运行测试前，请确保已配置豆包API：
+```bash
+# 创建.env文件
+cp env.example .env
+
+# 编辑.env文件，填入您的API信息
+# DOUBAO_API_KEY=your-api-key
+# DOUBAO_MODEL=your-model-endpoint
+```
+
 ### 完整功能测试
 ```bash
-# 1. 测试API连接
+# 1. 测试API连接（需要配置环境变量）
 python test/test_doubao.py
 
-# 2. 测试论文爬取
+# 2. 测试论文爬取（不需要API）
 python test/test_historical_dates.py
 
-# 3. 测试论文分析
+# 3. 测试论文分析（需要配置环境变量）
 python test/test_paper_analysis.py
 
-# 4. 查看演示结果
+# 4. 查看演示结果（不需要API）
 python test/demo_paper_analysis.py
 ```
 

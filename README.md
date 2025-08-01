@@ -30,7 +30,44 @@
 pip install -r requirements.txt
 ```
 
-### 2. 启动服务
+### 2. 配置豆包API
+在使用AI分析功能前，需要配置豆包API密钥：
+
+#### 方法一：手动创建环境文件（推荐）
+1. 复制环境变量模板文件：
+   ```bash
+   cp env.example .env
+   ```
+
+2. 编辑 `.env` 文件，填入您的豆包API信息：
+   ```bash
+   DOUBAO_API_KEY=your-doubao-api-key-here
+   DOUBAO_MODEL=your-doubao-model-endpoint-here
+   ```
+
+#### 方法二：设置系统环境变量
+```bash
+# Linux/Mac
+export DOUBAO_API_KEY="your-doubao-api-key"
+export DOUBAO_MODEL="your-doubao-model-endpoint"
+
+# Windows
+set DOUBAO_API_KEY=your-doubao-api-key
+set DOUBAO_MODEL=your-doubao-model-endpoint
+```
+
+#### 获取豆包API密钥
+1. 访问 [豆包大模型控制台](https://console.volcengine.com/ai/)
+2. 创建应用并获取API密钥
+3. 记录模型接入点ID
+
+#### 测试API连接
+配置完成后，您可以运行测试验证API是否正常工作：
+```bash
+python test/test_doubao.py
+```
+
+### 3. 启动服务
 ```bash
 # Linux/Mac
 ./start.sh
@@ -42,10 +79,10 @@ start.bat
 python server.py
 ```
 
-### 3. 访问应用
+### 4. 访问应用
 打开浏览器访问: http://localhost:8080
 
-### 4. 使用流程
+### 5. 使用流程
 1. **选择日期和板块** (cs.CV、cs.LG 或 cs.AI)
 2. **搜索文章列表** - 爬取指定日期的论文
 3. **开始分析** - 使用AI对论文进行深度分析
@@ -70,6 +107,8 @@ arxiv-accelerator/
 ├── 📝 配置文件
 │   ├── requirements.txt               # Python依赖
 │   ├── start.sh / start.bat          # 启动脚本
+
+│   ├── env.example                   # 环境变量模板
 │   └── .gitignore                    # Git忽略文件
 ├── 📋 提示词
 │   └── prompt/
@@ -170,8 +209,10 @@ python paper_analysis_processor.py log/2025-07-31-cs.CV-result.md --test 10
    - 确认arXiv API可访问
 
 3. **分析功能异常**
-   - 检查豆包API配置
+   - 检查豆包API密钥是否正确设置
+   - 验证环境变量 `DOUBAO_API_KEY` 和 `DOUBAO_MODEL`
    - 查看`prompt/system_prompt.md`是否存在
+   - 检查网络连接到豆包API服务
 
 4. **前端显示问题**
    - 清除浏览器缓存

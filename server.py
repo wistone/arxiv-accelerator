@@ -6,6 +6,14 @@ import json
 import time
 import threading
 from datetime import datetime
+
+# 加载环境变量文件
+try:
+    from dotenv import load_dotenv
+    load_dotenv()  # 加载.env文件中的环境变量
+except ImportError:
+    print("⚠️  python-dotenv未安装，使用系统环境变量")
+
 from crawl_raw_info import crawl_arxiv_papers
 from paper_analysis_processor import analyze_paper, parse_markdown_table, generate_analysis_markdown
 from doubao_client import DoubaoClient
@@ -335,6 +343,7 @@ def analyze_papers():
 
 def run_analysis_task(task_id, input_file, selected_date, selected_category, test_count):
     """后台运行分析任务"""
+    print(f"🚀 开始分析任务: {task_id}, 文件: {input_file}, 测试数量: {test_count}")
     try:
         with analysis_lock:
             analysis_progress[task_id] = {
@@ -367,9 +376,12 @@ def run_analysis_task(task_id, input_file, selected_date, selected_category, tes
             analysis_progress[task_id]['status'] = 'processing'
         
         # 创建doubao客户端
+        print(f"📡 初始化豆包客户端...")
         client = DoubaoClient()
+        print(f"✅ 豆包客户端初始化成功")
         
         # 处理每篇论文
+        print(f"📄 开始处理 {len(papers)} 篇论文")
         for i, paper in enumerate(papers):
             with analysis_lock:
                 analysis_progress[task_id]['current'] = i + 1
@@ -377,8 +389,10 @@ def run_analysis_task(task_id, input_file, selected_date, selected_category, tes
                 analysis_progress[task_id]['analysis_result'] = None
             
             # 调用论文分析
+            print(f"🔍 分析第 {i+1} 篇论文: {paper['title'][:50]}...")
             analysis_result = analyze_paper(client, system_prompt, paper['title'], paper['abstract'])
             paper['analysis_result'] = analysis_result
+            print(f"✅ 第 {i+1} 篇论文分析完成")
             
             with analysis_lock:
                 analysis_progress[task_id]['analysis_result'] = analysis_result
@@ -413,9 +427,15 @@ def run_analysis_task(task_id, input_file, selected_date, selected_category, tes
             analysis_progress[task_id]['completed_range_type'] = completed_range_type
         
     except Exception as e:
+        error_msg = str(e)
+        print(f"❌ 分析任务失败: {task_id}, 错误: {error_msg}")
+        import traceback
+        print("错误详情:")
+        traceback.print_exc()
+        
         with analysis_lock:
             analysis_progress[task_id]['status'] = 'error'
-            analysis_progress[task_id]['error'] = str(e)
+            analysis_progress[task_id]['error'] = error_msg
 
 @app.route('/api/analysis_progress')
 def analysis_progress_stream():
