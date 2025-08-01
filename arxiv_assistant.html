@@ -991,44 +991,39 @@
             const selectedCategory = document.getElementById('categorySelect').value;
             const testCount = document.getElementById('testCount').value;
             
-            // 检查是否选择了分析范围
-            if (testCount === '') {
-                // 全部分析
-                await startNewAnalysis(selectedDate, selectedCategory, null);
-            } else {
-                // 检查是否要加载现有结果还是重新生成
-                const selectedRange = testCount === '5' ? 'top5' :
-                                   testCount === '10' ? 'top10' :
-                                   testCount === '20' ? 'top20' : 'full';
-                
-                // 先尝试加载现有结果
-                try {
-                    const response = await fetch('/api/get_analysis_results', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            date: selectedDate,
-                            category: selectedCategory,
-                            range_type: selectedRange
-                        })
-                    });
+            // 确定选择的分析范围类型
+            const selectedRange = testCount === '5' ? 'top5' :
+                               testCount === '10' ? 'top10' :
+                               testCount === '20' ? 'top20' : 'full';
+            
+            // 先尝试加载现有结果
+            try {
+                const response = await fetch('/api/get_analysis_results', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        date: selectedDate,
+                        category: selectedCategory,
+                        range_type: selectedRange
+                    })
+                });
 
-                    if (response.ok) {
-                        const data = await response.json();
-                        closeModal();
-                        displayAnalysisResults(data.articles);
-                        showSuccess(`成功加载 ${selectedRange} 分析结果，共 ${data.total} 篇论文`);
-                        return;
-                    }
-                } catch (error) {
-                    console.log('加载现有结果失败，开始重新生成:', error);
+                if (response.ok) {
+                    const data = await response.json();
+                    closeModal();
+                    displayAnalysisResults(data.articles);
+                    showSuccess(`成功加载 ${selectedRange} 分析结果，共 ${data.total} 篇论文`);
+                    return;
                 }
-                
-                // 如果加载失败，开始重新生成
-                await startNewAnalysis(selectedDate, selectedCategory, parseInt(testCount));
+            } catch (error) {
+                console.log('加载现有结果失败，开始重新生成:', error);
             }
+            
+            // 如果加载失败，开始重新生成
+            const testCountInt = testCount === '' ? null : parseInt(testCount);
+            await startNewAnalysis(selectedDate, selectedCategory, testCountInt);
         }
 
         async function startNewAnalysis(selectedDate, selectedCategory, testCount) {
