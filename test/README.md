@@ -30,6 +30,12 @@
 - **特点**: 测试评分系统的准确性
 - **运行**: `python test/test_paper_evaluation.py`
 
+#### `test_cs_ai_support.py`
+- **功能**: 测试cs.AI类别支持
+- **用途**: 验证cs.AI类别的完整工作流程
+- **特点**: 测试爬取、API、分析功能，并比较不同类别数据量
+- **运行**: `python test/test_cs_ai_support.py`
+
 ### 演示脚本
 
 #### `demo_paper_analysis.py`
