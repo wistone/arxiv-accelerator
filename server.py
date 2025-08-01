@@ -382,23 +382,59 @@ def run_analysis_task(task_id, input_file, selected_date, selected_category, tes
         
         # 处理每篇论文
         print(f"📄 开始处理 {len(papers)} 篇论文")
+        
+        # 添加论文分析统计
+        success_count = 0
+        error_count = 0
+        
         for i, paper in enumerate(papers):
-            with analysis_lock:
-                analysis_progress[task_id]['current'] = i + 1
-                analysis_progress[task_id]['paper'] = paper
-                analysis_progress[task_id]['analysis_result'] = None
-            
-            # 调用论文分析
-            print(f"🔍 分析第 {i+1} 篇论文: {paper['title'][:50]}...")
-            analysis_result = analyze_paper(client, system_prompt, paper['title'], paper['abstract'])
-            paper['analysis_result'] = analysis_result
-            print(f"✅ 第 {i+1} 篇论文分析完成")
-            
-            with analysis_lock:
-                analysis_progress[task_id]['analysis_result'] = analysis_result
-            
-            # 简单延时以便前端能看到进度
-            time.sleep(0.1)
+            try:
+                with analysis_lock:
+                    analysis_progress[task_id]['current'] = i + 1
+                    analysis_progress[task_id]['paper'] = paper
+                    analysis_progress[task_id]['analysis_result'] = None
+                
+                # 调用论文分析
+                print(f"🔍 分析第 {i+1}/{len(papers)} 篇论文: {paper['title'][:50]}...")
+                start_time = time.time()
+                
+                analysis_result = analyze_paper(client, system_prompt, paper['title'], paper['abstract'])
+                paper['analysis_result'] = analysis_result
+                
+                elapsed_time = time.time() - start_time
+                
+                # 检查分析结果是否包含错误
+                if '"error"' in analysis_result:
+                    error_count += 1
+                    print(f"⚠️  第 {i+1} 篇论文分析有错误，耗时: {elapsed_time:.2f}秒")
+                else:
+                    success_count += 1
+                    print(f"✅ 第 {i+1} 篇论文分析完成，耗时: {elapsed_time:.2f}秒")
+                
+                with analysis_lock:
+                    analysis_progress[task_id]['analysis_result'] = analysis_result
+                    analysis_progress[task_id]['success_count'] = success_count
+                    analysis_progress[task_id]['error_count'] = error_count
+                
+                # 每10篇论文输出一次进度摘要
+                if (i + 1) % 10 == 0 or i == len(papers) - 1:
+                    print(f"📊 进度摘要: {i+1}/{len(papers)} 完成，成功: {success_count}，错误: {error_count}")
+                
+                # 简单延时以便前端能看到进度
+                time.sleep(0.1)
+                
+            except Exception as e:
+                error_count += 1
+                print(f"❌ 第 {i+1} 篇论文处理异常: {e}")
+                # 给出默认错误结果
+                paper['analysis_result'] = f'{{"error": "Processing exception: {str(e)}"}}'
+                
+                with analysis_lock:
+                    analysis_progress[task_id]['analysis_result'] = paper['analysis_result']
+                    analysis_progress[task_id]['error_count'] = error_count
+                
+                # 继续处理下一篇论文
+                continue
         
         # 根据test_count生成不同的输出文件名
         if test_count:
@@ -421,10 +457,14 @@ def run_analysis_task(task_id, input_file, selected_date, selected_category, tes
         output_file = os.path.join('log', output_name)
         generate_analysis_markdown(papers, output_file)
         
+        print(f"🎊 分析任务完成！总计: {len(papers)} 篇，成功: {success_count} 篇，错误: {error_count} 篇")
+        
         with analysis_lock:
             analysis_progress[task_id]['status'] = 'completed'
             analysis_progress[task_id]['output_file'] = output_file
             analysis_progress[task_id]['completed_range_type'] = completed_range_type
+            analysis_progress[task_id]['final_success_count'] = success_count
+            analysis_progress[task_id]['final_error_count'] = error_count
         
     except Exception as e:
         error_msg = str(e)
@@ -449,7 +489,7 @@ def analysis_progress_stream():
         last_current = -1
         last_status = None
         loop_count = 0
-        max_loops = 300  # 最多循环5分钟（300秒）
+        max_loops = 1800  # 最多循环30分钟（1800秒）
         
         # 立即发送初始状态
         yield f"data: {json.dumps({'status': 'connecting', 'current': 0, 'total': 0}, ensure_ascii=False)}\n\n"

@@ -77,6 +77,7 @@ class DoubaoClient:
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
+                timeout=60,  # 设置60秒超时
             )
             
             reply = response.choices[0].message.content

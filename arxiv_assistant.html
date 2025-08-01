@@ -816,6 +816,12 @@
         let currentAnalysisArticles = []; // 存储当前分析结果
         let sortColumn = ''; // 当前排序列
         let sortDirection = 'asc'; // 排序方向
+        
+        // SSE连接管理变量
+        let currentEventSource = null;
+        let progressCheckInterval = null;
+        let analysisStartTime = null;
+        let lastProgressUpdate = null;
 
         async function searchArticles() {
             const selectedDate = document.getElementById('dateSelect').value;
@@ -1234,6 +1240,10 @@
         }
 
         function closeModal() {
+            // 停止所有连接
+            stopAllConnections();
+            
+            // 隐藏弹窗
             document.getElementById('analysisModal').style.display = 'none';
         }
 
@@ -1283,6 +1293,9 @@
             document.getElementById('progressContainer').style.display = 'block';
             document.getElementById('currentPaper').style.display = 'block';
             
+            analysisStartTime = Date.now();
+            lastProgressUpdate = Date.now();
+            
             try {
                 const response = await fetch('/api/analyze_papers', {
                     method: 'POST',
@@ -1300,26 +1313,9 @@
                     throw new Error('分析请求失败');
                 }
 
-                // 使用Server-Sent Events获取实时进度
-                const eventSource = new EventSource(`/api/analysis_progress?date=${selectedDate}&category=${selectedCategory}&test_count=${testCount || ''}`);
-                
-                eventSource.onmessage = function(event) {
-                    console.log('SSE received:', event.data);
-                    const data = JSON.parse(event.data);
-                    console.log('SSE parsed data:', data);
-                    updateProgress(data);
-                };
-
-                eventSource.onerror = function(event) {
-                    console.error('SSE连接错误:', event);
-                    eventSource.close();
-                };
-
-                eventSource.addEventListener('complete', function(event) {
-                    const data = JSON.parse(event.data);
-                    onAnalysisComplete(data);
-                    eventSource.close();
-                });
+                // 开始SSE连接和备用检查机制
+                startSSEConnection(selectedDate, selectedCategory, testCount);
+                startProgressBackupCheck(selectedDate, selectedCategory);
 
             } catch (error) {
                 showError('分析启动失败: ' + error.message);
@@ -1328,7 +1324,7 @@
         }
 
         function updateProgress(data) {
-            const { current, total, paper, analysis_result, status } = data;
+            const { current, total, paper, analysis_result, status, success_count, error_count } = data;
             
             console.log('updateProgress called with:', data);
             
@@ -1341,7 +1337,15 @@
             // 更新进度条
             const progress = total > 0 ? (current / total) * 100 : 0;
             document.getElementById('progressBarFill').style.width = progress + '%';
-            document.getElementById('progressText').textContent = `正在处理第 ${current} / ${total} 篇论文 (${progress.toFixed(1)}%)`;
+            
+            // 构建进度文本，包含成功/错误统计
+            let progressText = `正在处理第 ${current} / ${total} 篇论文 (${progress.toFixed(1)}%)`;
+            if (success_count !== undefined || error_count !== undefined) {
+                const successCount = success_count || 0;
+                const errorCount = error_count || 0;
+                progressText += ` | 成功: ${successCount}, 错误: ${errorCount}`;
+            }
+            document.getElementById('progressText').textContent = progressText;
             
             // 更新当前论文信息
             if (paper) {
@@ -1385,6 +1389,139 @@
                 } else {
                     document.getElementById('currentAnalysis').textContent = '正在分析...';
                 }
+            }
+        }
+
+        function startSSEConnection(selectedDate, selectedCategory, testCount) {
+            // 清理之前的连接
+            if (currentEventSource) {
+                currentEventSource.close();
+            }
+
+            console.log('🔌 启动SSE连接...');
+            
+            // 使用Server-Sent Events获取实时进度
+            currentEventSource = new EventSource(`/api/analysis_progress?date=${selectedDate}&category=${selectedCategory}&test_count=${testCount || ''}`);
+            
+            currentEventSource.onmessage = function(event) {
+                console.log('SSE received:', event.data);
+                const data = JSON.parse(event.data);
+                console.log('SSE parsed data:', data);
+                updateProgress(data);
+                lastProgressUpdate = Date.now();
+            };
+
+            currentEventSource.onerror = function(event) {
+                console.error('SSE连接错误:', event);
+                console.log('🔄 SSE连接中断，将使用备用检查机制');
+                
+                // 更新进度显示
+                const progressText = document.getElementById('progressText');
+                if (progressText) {
+                    progressText.textContent += ' | 连接中断，使用备用监控...';
+                }
+                
+                // 关闭当前连接
+                currentEventSource.close();
+                currentEventSource = null;
+            };
+
+            currentEventSource.addEventListener('complete', function(event) {
+                const data = JSON.parse(event.data);
+                console.log('✅ 分析完成事件:', data);
+                onAnalysisComplete(data);
+                stopAllConnections();
+            });
+
+            currentEventSource.addEventListener('error', function(event) {
+                console.error('SSE错误事件:', event);
+                const data = JSON.parse(event.data);
+                showError('分析出错: ' + (data.error || '未知错误'));
+                stopAllConnections();
+            });
+        }
+
+        function startProgressBackupCheck(selectedDate, selectedCategory) {
+            // 清理之前的定时器
+            if (progressCheckInterval) {
+                clearInterval(progressCheckInterval);
+            }
+
+            console.log('🔄 启动备用进度检查机制...');
+            
+            // 每5秒检查一次进度（备用机制）
+            progressCheckInterval = setInterval(async () => {
+                try {
+                    // 检查是否长时间没有收到更新（超过30秒）
+                    const timeSinceLastUpdate = Date.now() - lastProgressUpdate;
+                    if (timeSinceLastUpdate > 30000) {
+                        console.log('⚠️  长时间无进度更新，使用备用检查...');
+                        await checkAnalysisStatus(selectedDate, selectedCategory);
+                    }
+                } catch (error) {
+                    console.error('备用进度检查失败:', error);
+                }
+            }, 5000);
+        }
+
+        async function checkAnalysisStatus(selectedDate, selectedCategory) {
+            try {
+                // 尝试获取分析结果来检查是否完成
+                const response = await fetch('/api/get_analysis_results', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        date: selectedDate, 
+                        category: selectedCategory, 
+                        range_type: 'full' 
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('✅ 备用检查发现分析已完成!');
+                    
+                    // 分析已完成，直接跳转到结果页面
+                    const completionData = {
+                        summary: `分析完成！共处理 ${data.total} 篇论文`,
+                        completed_range_type: 'full'
+                    };
+                    
+                    onAnalysisComplete(completionData);
+                    stopAllConnections();
+                } else {
+                    // 分析还在进行中
+                    console.log('📊 备用检查：分析仍在进行中...');
+                    
+                    // 更新显示时间信息
+                    const elapsed = Math.floor((Date.now() - analysisStartTime) / 1000);
+                    const minutes = Math.floor(elapsed / 60);
+                    const seconds = elapsed % 60;
+                    
+                    const progressText = document.getElementById('progressText');
+                    if (progressText && !progressText.textContent.includes('已运行')) {
+                        const currentText = progressText.textContent.split(' | 已运行:')[0];
+                        progressText.textContent = `${currentText} | 已运行: ${minutes}分${seconds}秒`;
+                    }
+                }
+            } catch (error) {
+                console.error('备用状态检查失败:', error);
+            }
+        }
+
+        function stopAllConnections() {
+            // 停止SSE连接
+            if (currentEventSource) {
+                console.log('🔌 关闭SSE连接');
+                currentEventSource.close();
+                currentEventSource = null;
+            }
+            
+            // 停止备用检查
+            if (progressCheckInterval) {
+                console.log('🔄 关闭备用检查');
+                clearInterval(progressCheckInterval);
+                progressCheckInterval = null;
             }
         }
 
