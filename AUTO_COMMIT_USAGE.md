@@ -33,6 +33,7 @@ python auto_commit_logs.py --quiet
 
 - 自动检测`log/*-analysis*.md`文件的变化
 - 支持交互模式和静默模式
+- **自动配置git用户信息**（适合Render等云服务器）
 - 自动生成格式化的提交信息：`Log: Auto Update YYYY-MM-DD HH:MM:SS`
 - 支持推送到`main`或`master`分支
 - 完整的错误处理和状态报告
@@ -65,6 +66,41 @@ python auto_commit_logs.py --quiet
 2. **必须有远程仓库推送权限**
 3. **确保Python环境可用**（Render服务器支持）
 4. **路径格式自动处理**（支持Windows/Linux）
+5. **git用户信息自动配置**（无需手动设置）
+
+## 🔧 Render服务器部署
+
+### Git配置说明
+
+脚本会**自动检查并配置**git用户信息，如果未设置会自动使用：
+- **用户名**: `Arxiv Auto Commit Bot`
+- **邮箱**: `auto-commit@arxiv-accelerator.local`
+
+### 手动配置（可选）
+
+如果您希望使用自定义的git信息，可以在Render部署前手动设置：
+
+```bash
+# 设置git用户信息
+git config user.name "Your Bot Name"
+git config user.email "your-email@example.com"
+
+# 验证配置
+git config user.name
+git config user.email
+```
+
+### Render Cron Job设置
+
+在Render控制台添加cron job：
+
+```bash
+# 每2小时自动提交一次
+0 */2 * * * cd $RENDER_EXTERNAL_HOSTNAME && python auto_commit_logs.py --quiet
+
+# 或者使用项目路径
+0 */2 * * * cd /opt/render/project/src && python auto_commit_logs.py --quiet
+```
 
 ## 📊 返回码
 

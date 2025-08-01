@@ -41,6 +41,50 @@ def check_git_status(verbose=True):
         return False
     
     log_message("✅ 当前目录是git仓库", verbose)
+    
+    # 检查并配置git用户信息
+    if not check_and_setup_git_user(verbose):
+        return False
+    
+    return True
+
+def check_and_setup_git_user(verbose=True):
+    """检查并设置git用户信息"""
+    log_message("🔍 检查git用户配置...", verbose)
+    
+    # 检查用户名
+    stdout, stderr, returncode = run_command("git config user.name", check=False)
+    user_name = stdout.strip() if returncode == 0 else ""
+    
+    # 检查邮箱
+    stdout, stderr, returncode = run_command("git config user.email", check=False)
+    user_email = stdout.strip() if returncode == 0 else ""
+    
+    # 如果配置缺失，使用默认值
+    need_setup = False
+    if not user_name:
+        need_setup = True
+        default_name = "Arxiv Auto Commit Bot"
+        log_message(f"⚠️  git用户名未配置，将设置为: {default_name}", verbose)
+        stdout, stderr, returncode = run_command(f'git config user.name "{default_name}"', check=False)
+        if returncode != 0:
+            log_message(f"❌ 设置git用户名失败: {stderr}", verbose)
+            return False
+    
+    if not user_email:
+        need_setup = True
+        default_email = "auto-commit@arxiv-accelerator.local"
+        log_message(f"⚠️  git邮箱未配置，将设置为: {default_email}", verbose)
+        stdout, stderr, returncode = run_command(f'git config user.email "{default_email}"', check=False)
+        if returncode != 0:
+            log_message(f"❌ 设置git邮箱失败: {stderr}", verbose)
+            return False
+    
+    if need_setup:
+        log_message("✅ git用户信息配置完成", verbose)
+    else:
+        log_message(f"✅ git用户配置正常: {user_name} <{user_email}>", verbose)
+    
     return True
 
 def get_analysis_files(verbose=True):
