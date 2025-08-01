@@ -225,15 +225,74 @@ def check_analysis_exists():
         if not selected_date:
             return jsonify({'error': '请选择日期'}), 400
         
-        # 构建分析结果文件路径
-        filename = f"{selected_date}-{selected_category}-analysis.md"
-        filepath = os.path.join('log', filename)
+        # 检查所有可能的分析文件
+        possible_files = [
+            f"{selected_date}-{selected_category}-analysis.md",  # 全部分析
+            f"{selected_date}-{selected_category}-analysis-top20.md",  # 前20篇
+            f"{selected_date}-{selected_category}-analysis-top10.md",  # 前10篇
+            f"{selected_date}-{selected_category}-analysis-top5.md",   # 前5篇
+        ]
         
-        exists = os.path.exists(filepath)
+        existing_files = []
+        for filename in possible_files:
+            filepath = os.path.join('log', filename)
+            if os.path.exists(filepath):
+                # 根据文件名确定分析范围
+                if 'top5' in filename:
+                    range_type = 'top5'
+                    range_desc = '前5篇'
+                    test_count = 5
+                elif 'top10' in filename:
+                    range_type = 'top10'
+                    range_desc = '前10篇'
+                    test_count = 10
+                elif 'top20' in filename:
+                    range_type = 'top20'
+                    range_desc = '前20篇'
+                    test_count = 20
+                else:
+                    range_type = 'full'
+                    range_desc = '全部分析'
+                    test_count = None
+                
+                existing_files.append({
+                    'filename': filename,
+                    'filepath': filepath,
+                    'range_type': range_type,
+                    'range_desc': range_desc,
+                    'test_count': test_count
+                })
+        
+        # 按优先级排序：全部分析 > 前20篇 > 前10篇 > 前5篇
+        existing_files.sort(key=lambda x: {
+            'full': 0, 'top20': 1, 'top10': 2, 'top5': 3
+        }[x['range_type']])
+        
+        # 确定可用的分析选项
+        available_options = []
+        if existing_files:
+            best_file = existing_files[0]
+            best_range = best_file['range_type']
+            
+            # 根据最佳文件确定可用的选项
+            if best_range == 'full':
+                # 有全部分析，只能选择全部分析
+                available_options = ['full']
+            elif best_range == 'top20':
+                # 有前20篇分析，可以选择前20篇或重新生成全部分析
+                available_options = ['top20', 'full']
+            elif best_range == 'top10':
+                # 有前10篇分析，可以选择前10篇、前20篇或重新生成全部分析
+                available_options = ['top10', 'top20', 'full']
+            elif best_range == 'top5':
+                # 有前5篇分析，可以选择前5篇、前10篇、前20篇或重新生成全部分析
+                available_options = ['top5', 'top10', 'top20', 'full']
         
         return jsonify({
-            'exists': exists,
-            'filepath': filepath if exists else None
+            'exists': len(existing_files) > 0,
+            'existing_files': existing_files,
+            'best_file': existing_files[0] if existing_files else None,
+            'available_options': available_options
         })
         
     except Exception as e:
@@ -327,14 +386,31 @@ def run_analysis_task(task_id, input_file, selected_date, selected_category, tes
             # 简单延时以便前端能看到进度
             time.sleep(0.1)
         
-        # 生成输出文件
-        output_name = f"{selected_date}-{selected_category}-analysis.md"
+        # 根据test_count生成不同的输出文件名
+        if test_count:
+            if test_count <= 5:
+                output_name = f"{selected_date}-{selected_category}-analysis-top5.md"
+                completed_range_type = 'top5'
+            elif test_count <= 10:
+                output_name = f"{selected_date}-{selected_category}-analysis-top10.md"
+                completed_range_type = 'top10'
+            elif test_count <= 20:
+                output_name = f"{selected_date}-{selected_category}-analysis-top20.md"
+                completed_range_type = 'top20'
+            else:
+                output_name = f"{selected_date}-{selected_category}-analysis.md"
+                completed_range_type = 'full'
+        else:
+            output_name = f"{selected_date}-{selected_category}-analysis.md"
+            completed_range_type = 'full'
+        
         output_file = os.path.join('log', output_name)
         generate_analysis_markdown(papers, output_file)
         
         with analysis_lock:
             analysis_progress[task_id]['status'] = 'completed'
             analysis_progress[task_id]['output_file'] = output_file
+            analysis_progress[task_id]['completed_range_type'] = completed_range_type
         
     except Exception as e:
         with analysis_lock:
@@ -395,7 +471,8 @@ def analysis_progress_stream():
             if status == 'completed':
                 # 发送完成事件
                 completion_data = {
-                    'summary': f'分析完成！共处理 {progress.get("total", 0)} 篇论文'
+                    'summary': f'分析完成！共处理 {progress.get("total", 0)} 篇论文',
+                    'completed_range_type': progress.get('completed_range_type', 'full')
                 }
                 yield f"event: complete\ndata: {json.dumps(completion_data, ensure_ascii=False)}\n\n"
                 print(f"SSE stream completed for task_id: {task_id}")
@@ -425,16 +502,25 @@ def get_analysis_results():
         data = request.get_json()
         selected_date = data.get('date')
         selected_category = data.get('category', 'cs.CV')
+        selected_range = data.get('range_type', 'full') # 默认全部分析
         
         if not selected_date:
             return jsonify({'error': '请选择日期'}), 400
         
-        # 构建分析结果文件路径
-        filename = f"{selected_date}-{selected_category}-analysis.md"
+        # 根据选择的范围构建分析结果文件路径
+        if selected_range == 'top5':
+            filename = f"{selected_date}-{selected_category}-analysis-top5.md"
+        elif selected_range == 'top10':
+            filename = f"{selected_date}-{selected_category}-analysis-top10.md"
+        elif selected_range == 'top20':
+            filename = f"{selected_date}-{selected_category}-analysis-top20.md"
+        else:
+            filename = f"{selected_date}-{selected_category}-analysis.md"
+        
         filepath = os.path.join('log', filename)
         
         if not os.path.exists(filepath):
-            return jsonify({'error': f'未找到 {selected_date} 的 {selected_category} 分析结果文件'}), 404
+            return jsonify({'error': f'未找到 {selected_date} 的 {selected_category} {selected_range} 分析结果文件'}), 404
         
         # 解析分析结果文件
         articles = parse_analysis_markdown_file(filepath)
@@ -447,7 +533,8 @@ def get_analysis_results():
             'articles': articles,
             'total': len(articles),
             'date': selected_date,
-            'category': selected_category
+            'category': selected_category,
+            'range_type': selected_range
         })
         
     except Exception as e:
