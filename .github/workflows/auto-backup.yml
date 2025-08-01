@@ -14,6 +14,11 @@ on:
         default: 'false'
         type: boolean
 
+# 设置工作流权限
+permissions:
+  contents: write  # 允许写入仓库内容
+  actions: read    # 允许读取Actions
+
 jobs:
   backup-logs:
     runs-on: ubuntu-latest
@@ -43,6 +48,7 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: true
 
       - name: 🔧 配置 Git
         run: |
@@ -305,7 +311,25 @@ jobs:
           
           # 推送
           echo "📤 推送到远程仓库..."
-          git push origin main
+          
+          # 尝试推送，如果失败则使用详细错误信息
+          if ! git push origin main; then
+            echo "❌ 推送失败，尝试诊断问题..."
+            echo "🔍 当前远程配置:"
+            git remote -v
+            echo "🔍 当前分支信息:"
+            git branch -v
+            echo "🔍 Git凭据配置:"
+            git config --list | grep -E "(user|credential|remote)" || echo "无相关配置"
+            
+            # 尝试重新配置远程URL
+            echo "🔧 重新配置远程URL..."
+            git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+            
+            # 再次尝试推送
+            echo "🔄 重新尝试推送..."
+            git push origin main
+          fi
           
           echo "✅ 备份提交推送成功!"
 
