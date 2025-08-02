@@ -18,7 +18,7 @@ except ImportError:
     print("⚠️  python-dotenv未安装，使用系统环境变量")
 
 from crawl_raw_info import crawl_arxiv_papers
-from paper_analysis_processor import analyze_paper, parse_markdown_table, generate_analysis_markdown
+from paper_analysis_processor import analyze_paper, parse_markdown_table, generate_analysis_markdown, generate_analysis_fail_markdown
 from doubao_client import DoubaoClient
 
 app = Flask(__name__)
@@ -439,28 +439,53 @@ def run_analysis_task(task_id, input_file, selected_date, selected_category, tes
                 # 继续处理下一篇论文
                 continue
         
-        # 根据test_count生成不同的输出文件名
-        if test_count:
-            if test_count <= 5:
-                output_name = f"{selected_date}-{selected_category}-analysis-top5.md"
-                completed_range_type = 'top5'
-            elif test_count <= 10:
-                output_name = f"{selected_date}-{selected_category}-analysis-top10.md"
-                completed_range_type = 'top10'
-            elif test_count <= 20:
-                output_name = f"{selected_date}-{selected_category}-analysis-top20.md"
-                completed_range_type = 'top20'
+        # 检查是否有成功的分析结果
+        if success_count == 0:
+            # 如果没有任何成功的分析，生成失败文件
+            if test_count:
+                if test_count <= 5:
+                    output_name = f"{selected_date}-{selected_category}-analysis-top5-fail.md"
+                    completed_range_type = 'top5'
+                elif test_count <= 10:
+                    output_name = f"{selected_date}-{selected_category}-analysis-top10-fail.md"
+                    completed_range_type = 'top10'
+                elif test_count <= 20:
+                    output_name = f"{selected_date}-{selected_category}-analysis-top20-fail.md"
+                    completed_range_type = 'top20'
+                else:
+                    output_name = f"{selected_date}-{selected_category}-analysis-fail.md"
+                    completed_range_type = 'full'
+            else:
+                output_name = f"{selected_date}-{selected_category}-analysis-fail.md"
+                completed_range_type = 'full'
+            
+            output_file = os.path.join('log', output_name)
+            generate_analysis_fail_markdown(papers, output_file, error_count)
+            
+            print(f"❌ 分析任务失败！总计: {len(papers)} 篇，成功: {success_count} 篇，错误: {error_count} 篇")
+        else:
+            # 如果有成功的分析，生成正常文件
+            if test_count:
+                if test_count <= 5:
+                    output_name = f"{selected_date}-{selected_category}-analysis-top5.md"
+                    completed_range_type = 'top5'
+                elif test_count <= 10:
+                    output_name = f"{selected_date}-{selected_category}-analysis-top10.md"
+                    completed_range_type = 'top10'
+                elif test_count <= 20:
+                    output_name = f"{selected_date}-{selected_category}-analysis-top20.md"
+                    completed_range_type = 'top20'
+                else:
+                    output_name = f"{selected_date}-{selected_category}-analysis.md"
+                    completed_range_type = 'full'
             else:
                 output_name = f"{selected_date}-{selected_category}-analysis.md"
                 completed_range_type = 'full'
-        else:
-            output_name = f"{selected_date}-{selected_category}-analysis.md"
-            completed_range_type = 'full'
-        
-        output_file = os.path.join('log', output_name)
-        generate_analysis_markdown(papers, output_file)
-        
-        print(f"🎊 分析任务完成！总计: {len(papers)} 篇，成功: {success_count} 篇，错误: {error_count} 篇")
+            
+            output_file = os.path.join('log', output_name)
+            generate_analysis_markdown(papers, output_file)
+            
+            print(f"🎊 分析任务完成！总计: {len(papers)} 篇，成功: {success_count} 篇，错误: {error_count} 篇")
         
         with analysis_lock:
             analysis_progress[task_id]['status'] = 'completed'
@@ -573,14 +598,32 @@ def get_analysis_results():
         # 根据选择的范围构建分析结果文件路径
         if selected_range == 'top5':
             filename = f"{selected_date}-{selected_category}-analysis-top5.md"
+            fail_filename = f"{selected_date}-{selected_category}-analysis-top5-fail.md"
         elif selected_range == 'top10':
             filename = f"{selected_date}-{selected_category}-analysis-top10.md"
+            fail_filename = f"{selected_date}-{selected_category}-analysis-top10-fail.md"
         elif selected_range == 'top20':
             filename = f"{selected_date}-{selected_category}-analysis-top20.md"
+            fail_filename = f"{selected_date}-{selected_category}-analysis-top20-fail.md"
         else:
             filename = f"{selected_date}-{selected_category}-analysis.md"
+            fail_filename = f"{selected_date}-{selected_category}-analysis-fail.md"
         
         filepath = os.path.join('log', filename)
+        fail_filepath = os.path.join('log', fail_filename)
+        
+        # 先检查是否存在失败文件
+        if os.path.exists(fail_filepath):
+            # 解析失败文件
+            fail_info = parse_analysis_fail_file(fail_filepath)
+            return jsonify({
+                'success': False,
+                'is_analysis_failed': True,
+                'fail_info': fail_info,
+                'date': selected_date,
+                'category': selected_category,
+                'range_type': selected_range
+            })
         
         if not os.path.exists(filepath):
             return jsonify({'error': f'未找到 {selected_date} 的 {selected_category} {selected_range} 分析结果文件'}), 404
@@ -602,6 +645,55 @@ def get_analysis_results():
         
     except Exception as e:
         return jsonify({'error': f'服务器错误: {str(e)}'}), 500
+
+def parse_analysis_fail_file(filepath):
+    """解析分析失败markdown文件"""
+    fail_info = {
+        'total_papers': 0,
+        'error_count': 0,
+        'fail_time': '',
+        'papers': []
+    }
+    
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # 提取失败信息
+        lines = content.split('\n')
+        for line in lines:
+            if '**总计论文数**:' in line:
+                fail_info['total_papers'] = int(line.split(':')[1].strip())
+            elif '**失败数**:' in line:
+                fail_info['error_count'] = int(line.split(':')[1].strip())
+            elif '**失败时间**:' in line:
+                fail_info['fail_time'] = line.split(':', 1)[1].strip()
+        
+        # 解析论文列表（如果需要）
+        data_lines = []
+        for line in lines:
+            if line.startswith('|') and not line.startswith('|------') and '错误信息' not in line:
+                data_lines.append(line)
+        
+        # 解析论文数据行
+        for line in data_lines:
+            parts = [part.strip() for part in line.split('|')[1:-1]]  # 去掉首尾的 |
+            if len(parts) >= 6:
+                paper = {
+                    'no': parts[0],
+                    'error_msg': parts[1],
+                    'title': parts[2],
+                    'authors': parts[3],
+                    'abstract': parts[4],
+                    'link': parts[5]
+                }
+                fail_info['papers'].append(paper)
+        
+        return fail_info
+        
+    except Exception as e:
+        print(f"解析失败文件出错: {e}")
+        return fail_info
 
 def parse_analysis_markdown_file(filepath):
     """解析分析结果markdown文件"""

@@ -5,6 +5,7 @@ import pandas as pd
 import os
 import json
 import argparse
+from datetime import datetime
 from doubao_client import DoubaoClient
 
 def read_file_content(file_path):
@@ -155,6 +156,50 @@ def generate_analysis_markdown(papers, output_file):
         
     except Exception as e:
         print(f"生成markdown文件失败: {e}")
+
+def generate_analysis_fail_markdown(papers, output_file, error_count):
+    """生成分析失败的markdown文件"""
+    try:
+        with open(output_file, 'w', encoding='utf-8') as f:
+            # 写入失败状态说明
+            f.write("# 📋 论文分析失败报告\n\n")
+            f.write(f"**状态**: ❌ 分析失败\n\n")
+            f.write(f"**总计论文数**: {len(papers)}\n\n")
+            f.write(f"**失败数**: {error_count}\n\n")
+            f.write(f"**失败时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+            f.write("**失败原因**: 所有论文的AI分析都失败了，可能的原因包括：\n")
+            f.write("- API调用失败\n")
+            f.write("- 网络连接问题\n")
+            f.write("- AI模型服务异常\n")
+            f.write("- 配置错误\n\n")
+            f.write("---\n\n")
+            f.write("## 📄 尝试分析的论文列表\n\n")
+            
+            # 写入表头
+            f.write("|   No. |   错误信息 | title | authors | abstract | link |\n")
+            f.write("|------:|:----------|:------|:--------|:---------|:-----|\n")
+            
+            # 写入数据行
+            for paper in papers:
+                no = escape_markdown_content(paper['no'])
+                # 尝试从analysis_result中提取错误信息
+                analysis_result = paper.get('analysis_result', '')
+                if '"error"' in analysis_result:
+                    error_msg = "API调用失败"
+                else:
+                    error_msg = "未知错误"
+                    
+                title = escape_markdown_content(paper['title'])
+                authors = escape_markdown_content(paper['authors'])
+                abstract = escape_markdown_content(paper['abstract'])
+                link = escape_markdown_content(paper['link'])
+                
+                f.write(f"|{no:>6} | {error_msg} | {title} | {authors} | {abstract} | {link} |\n")
+        
+        print(f"❌ 分析失败结果已保存到: {output_file}")
+        
+    except Exception as e:
+        print(f"生成失败markdown文件失败: {e}")
 
 def process_paper_file(input_file, test_count=None):
     """处理论文文件"""

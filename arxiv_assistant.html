@@ -843,14 +843,25 @@
 
         function showError(message) {
             hideLoading();
+            // 隐藏成功消息
+            document.getElementById('success').style.display = 'none';
+            // 显示错误消息
             document.getElementById('error').textContent = message;
             document.getElementById('error').style.display = 'block';
         }
 
         function showSuccess(message) {
             hideLoading();
+            // 隐藏错误消息
+            document.getElementById('error').style.display = 'none';
+            // 显示成功消息
             document.getElementById('success').textContent = message;
             document.getElementById('success').style.display = 'block';
+        }
+
+        function hideAllMessages() {
+            document.getElementById('error').style.display = 'none';
+            document.getElementById('success').style.display = 'none';
         }
 
         // 全局变量
@@ -1363,8 +1374,15 @@
                 if (response.ok) {
                     const data = await response.json();
                     closeModal();
-                    displayAnalysisResults(data.articles);
-                    showSuccess(`成功加载 ${selectedRange} 分析结果，共 ${data.total} 篇论文`);
+                    
+                    // 检查是否是分析失败的结果
+                    if (data.is_analysis_failed) {
+                        displayAnalysisFailure(data.fail_info);
+                        showError(`分析失败：${data.fail_info.total_papers} 篇论文的AI分析都失败了`);
+                    } else {
+                        displayAnalysisResults(data.articles);
+                        showSuccess(`成功加载 ${selectedRange} 分析结果，共 ${data.total} 篇论文`);
+                    }
                     
                     // 更新URL状态
                     updateUrlState('analysis', selectedDate, selectedCategory, selectedRange);
@@ -1650,8 +1668,14 @@
                 const data = await response.json();
 
                 if (response.ok) {
-                    displayAnalysisResults(data.articles);
-                    showSuccess(`分析完成！共处理 ${data.total} 篇论文`);
+                    // 检查是否是分析失败的结果
+                    if (data.is_analysis_failed) {
+                        displayAnalysisFailure(data.fail_info);
+                        showError(`分析失败：${data.fail_info.total_papers} 篇论文的AI分析都失败了`);
+                    } else {
+                        displayAnalysisResults(data.articles);
+                        showSuccess(`分析完成！共处理 ${data.total} 篇论文`);
+                    }
                     
                     // 更新URL状态
                     updateUrlState('analysis', selectedDate, selectedCategory, rangeTypeToLoad);
@@ -1665,6 +1689,9 @@
         }
 
         function displayAnalysisResults(articles) {
+            // 清理所有消息
+            hideAllMessages();
+            
             // 保存当前分析结果
             currentAnalysisArticles = articles;
             
@@ -1697,6 +1724,107 @@
             displaySortedResults(articles);
             
             document.getElementById('tableContainer').style.display = 'block';
+        }
+
+        function displayAnalysisFailure(failInfo) {
+            // 清理所有消息
+            hideAllMessages();
+            
+            // 保存当前失败信息
+            currentAnalysisArticles = [];
+            
+            // 切换到分析模式（宽屏显示）
+            setAnalysisMode();
+            
+            const tableBody = document.getElementById('tableBody');
+            tableBody.innerHTML = '';
+
+            // 更新表头为失败分析格式
+            const tableHead = document.querySelector('#arxivTable thead tr');
+            tableHead.innerHTML = `
+                <th class="number-cell">序号</th>
+                <th class="filter-cell">错误信息</th>
+                <th class="details-cell">失败详情</th>
+                <th>标题</th>
+                <th class="authors-cell">作者</th>
+                <th class="abstract-cell">摘要</th>
+            `;
+
+            // 显示失败摘要信息
+            const summaryRow = document.createElement('tr');
+            summaryRow.style.backgroundColor = '#fff3cd';
+            summaryRow.style.borderLeft = '4px solid #ffc107';
+            summaryRow.innerHTML = `
+                <td colspan="6" style="padding: 20px; text-align: center;">
+                    <div style="font-size: 18px; font-weight: bold; color: #856404; margin-bottom: 10px;">
+                        ❌ 论文分析失败
+                    </div>
+                    <div style="color: #856404; margin-bottom: 10px;">
+                        <strong>失败时间:</strong> ${failInfo.fail_time || '未知'} | 
+                        <strong>总计论文:</strong> ${failInfo.total_papers || 0} 篇 | 
+                        <strong>失败数:</strong> ${failInfo.error_count || 0} 篇
+                    </div>
+                    <div style="color: #856404; font-size: 14px;">
+                        所有论文的AI分析都失败了，可能原因：API调用失败、网络连接问题、AI模型服务异常或配置错误
+                    </div>
+                    <div style="margin-top: 15px;">
+                        <button onclick="retryAnalysis()" style="background: #ffc107; color: #856404; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: bold;">
+                            🔄 重新分析
+                        </button>
+                    </div>
+                </td>
+            `;
+            tableBody.appendChild(summaryRow);
+
+            // 显示失败的论文列表
+            if (failInfo.papers && failInfo.papers.length > 0) {
+                failInfo.papers.forEach((paper, index) => {
+                    const row = document.createElement('tr');
+                    row.style.backgroundColor = '#f8d7da';
+                    
+                    row.innerHTML = `
+                        <td class="number-cell">${paper.no || index + 1}</td>
+                        <td class="filter-cell">
+                            <span class="filter-result rejected">${paper.error_msg || 'API调用失败'}</span>
+                        </td>
+                        <td class="details-cell">
+                            <div style="color: #721c24; font-size: 12px;">
+                                分析尝试3次均失败<br/>
+                                建议检查API配置
+                            </div>
+                        </td>
+                        <td class="title-cell">
+                            <div class="title-content">${paper.title || '未知标题'}</div>
+                            ${paper.link ? `<div class="title-link"><a href="${paper.link}" target="_blank">查看原文</a></div>` : ''}
+                        </td>
+                        <td class="authors-cell">
+                            <div class="authors-content">${paper.authors || '未知作者'}</div>
+                        </td>
+                        <td class="abstract-cell">
+                            <div class="abstract-content">${(paper.abstract || '无摘要').substring(0, 200)}${(paper.abstract || '').length > 200 ? '...' : ''}</div>
+                        </td>
+                    `;
+                    
+                    tableBody.appendChild(row);
+                });
+            }
+            
+            document.getElementById('tableContainer').style.display = 'block';
+        }
+
+        function retryAnalysis() {
+            // 获取当前的日期和分类
+            const selectedDate = document.getElementById('dateSelect').value;
+            const selectedCategory = document.getElementById('categorySelect').value;
+            
+            if (!selectedDate) {
+                showError('请先选择日期');
+                return;
+            }
+            
+            // 重新打开分析模态框
+            document.getElementById('analysisModal').style.display = 'block';
+            showAnalysisOptions({articles: currentArticles});
         }
 
         // ========== 页面布局管理功能 ==========
