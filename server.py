@@ -70,22 +70,20 @@ def search_articles():
         # 读取并解析markdown文件
         articles = parse_markdown_file(filepath, selected_category)
         
-        # 如果是今天且没有找到论文，返回特殊错误信息并删除log文件
-        if is_today and len(articles) == 0:
-            # 删除当天的log文件
+        # 如果没有找到论文，返回错误信息并删除空文件，这样下次可以重新尝试
+        if len(articles) == 0:
+            # 删除空的log文件和结果文件
             log_file = os.path.join('log', f"{date_obj.strftime('%Y-%m-%d')}-{selected_category}-log.txt")
             if os.path.exists(log_file):
                 os.remove(log_file)
+                print(f"已删除空的日志文件: {log_file}")
             if os.path.exists(filepath):
                 os.remove(filepath)
+                print(f"已删除空的结果文件: {filepath}")
             
             return jsonify({
-                'error': f'今天没有新的{selected_category}论文被提交到arXiv。这是正常现象，因为论文提交和索引需要时间。'
+                'error': f'当天没有新的{selected_category}论文被提交到arXiv。这是正常现象，因为论文提交和索引需要时间。可能您选择了今天的日期，或者arXiv周末未更新。'
             }), 404
-        
-        # 如果不是今天且没有论文，返回一般性错误
-        if len(articles) == 0:
-            return jsonify({'error': f'未找到 {selected_date} 的 {selected_category} 论文数据'}), 404
         
         return jsonify({
             'success': True,

@@ -107,7 +107,19 @@ def crawl_arxiv_papers(target_date_str, category="cs.CV"):
         return False
 
 if __name__ == "__main__":
-    # 如果直接运行脚本，使用今天的日期和cs.CV分类
-    today = dt.date.today().strftime('%Y-%m-%d')
-    success = crawl_arxiv_papers(today, "cs.CV")
+    import sys
+    
+    # 支持命令行参数：python crawl_raw_info.py [date] [category]
+    if len(sys.argv) >= 3:
+        target_date = sys.argv[1]
+        category = sys.argv[2]
+    elif len(sys.argv) >= 2:
+        target_date = sys.argv[1]
+        category = "cs.CV"
+    else:
+        # 如果没有参数，使用今天的日期和cs.CV分类
+        target_date = dt.date.today().strftime('%Y-%m-%d')
+        category = "cs.CV"
+    
+    success = crawl_arxiv_papers(target_date, category)
     print(f"爬取{'成功' if success else '失败'}")
