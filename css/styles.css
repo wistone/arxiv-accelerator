@@ -14,7 +14,7 @@ body {
 }
 
 .container {
-    max-width: 1200px;
+    max-width: 1300px;
     margin: 0 auto;
     background: white;
     border-radius: 15px;
@@ -23,13 +23,10 @@ body {
     transition: max-width 0.3s ease;
 }
 
-/* 分析模式下使用更宽的容器 */
-.container.analysis-mode {
-    max-width: 1600px;
-}
+/* 分析模式下的容器宽度与默认一致 */
 
 /* 分析模式下的响应式设计 */
-@media (max-width: 1650px) {
+@media (max-width: 1350px) {
     .container.analysis-mode {
         max-width: 95%;
         margin: 0 2.5%;
@@ -51,8 +48,8 @@ body {
 
 /* 分析模式下的表格优化 */
 .container.analysis-mode .title-cell {
-    max-width: 350px; /* 在分析模式下增加标题列宽度 */
-    min-width: 280px;
+    max-width: 280px; /* 在分析模式下减小标题列宽度 */
+    min-width: 220px;
 }
 
 .container.analysis-mode .authors-cell {
@@ -61,8 +58,8 @@ body {
 }
 
 .container.analysis-mode .abstract-cell {
-    max-width: 400px; /* 在分析模式下增加摘要列宽度 */
-    min-width: 300px;
+    max-width: 350px; /* 在分析模式下减小摘要列宽度 */
+    min-width: 280px;
 }
 
 .header {
@@ -250,8 +247,8 @@ body {
 }
 
 .title-cell {
-    max-width: 300px;
-    min-width: 250px;
+    max-width: 320px;
+    min-width: 260px;
     font-weight: 600;
     color: #495057;
 }
@@ -314,8 +311,8 @@ body {
 }
 
 .abstract-cell {
-    max-width: 500px; /* 增加摘要列宽度 */
-    min-width: 350px;
+    max-width: 420px; /* 调整摘要列宽度以配合1300px容器 */
+    min-width: 320px;
     position: relative;
 }
 
