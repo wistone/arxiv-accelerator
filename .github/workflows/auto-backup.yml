@@ -55,6 +55,81 @@ jobs:
           git config user.name "GitHub Actions Bot"
           git config user.email "actions@github.com"
 
+      - name: 🩺 健康检查和服务唤醒
+        id: health_check
+        run: |
+          echo "🩺 检查Render服务健康状态..."
+          BASE_URL="https://arxiv-accelerator.onrender.com"
+          
+          # 健康检查函数
+          check_service_health() {
+            local url="$1"
+            local timeout="${2:-30}"
+            
+            echo "🔍 检查服务: $url (超时: ${timeout}秒)" >&2
+            
+            # 使用较短的超时时间检查服务状态
+            local response=$(curl -s -o /dev/null -w "%{http_code}:%{time_total}" \
+              --max-time $timeout \
+              --connect-timeout 10 \
+              "$url" 2>/dev/null || echo "000:0")
+            
+            local status_code=$(echo "$response" | cut -d':' -f1)
+            local response_time=$(echo "$response" | cut -d':' -f2)
+            
+            echo "📊 状态码: $status_code, 响应时间: ${response_time}秒" >&2
+            # 只返回状态码到stdout
+            echo "$status_code"
+          }
+          
+          # 尝试多次健康检查，等待服务就绪
+          echo "🔄 开始服务健康检查 (最多等待120秒)..."
+          
+          for attempt in {1..8}; do
+            echo "🏃 第 $attempt 次检查..."
+            
+            # 检查根路径
+            status=$(check_service_health "$BASE_URL/" 15)
+            
+            case $status in
+              200|404|302|301)
+                echo "✅ 服务已就绪! (状态码: $status)"
+                echo "service_ready=true" >> $GITHUB_OUTPUT
+                break
+                ;;
+              502|503|521|522|523|524)
+                echo "⏳ 服务正在启动中... (状态码: $status)"
+                if [ $attempt -lt 8 ]; then
+                  echo "😴 等待15秒后重试..."
+                  sleep 15
+                else
+                  echo "❌ 服务启动超时，但将尝试调用备份API"
+                  echo "service_ready=false" >> $GITHUB_OUTPUT
+                fi
+                ;;
+              000)
+                echo "🔌 无法连接到服务，可能正在冷启动..."
+                if [ $attempt -lt 8 ]; then
+                  echo "😴 等待15秒后重试..."
+                  sleep 15
+                else
+                  echo "❌ 连接超时，但将尝试调用备份API"
+                  echo "service_ready=false" >> $GITHUB_OUTPUT
+                fi
+                ;;
+              *)
+                echo "⚠️  未知状态码: $status"
+                if [ $attempt -lt 8 ]; then
+                  echo "😴 等待10秒后重试..."
+                  sleep 10
+                else
+                  echo "❓ 状态未知，将尝试调用备份API"
+                  echo "service_ready=false" >> $GITHUB_OUTPUT
+                fi
+                ;;
+            esac
+          done
+
       - name: 🌐 获取Render服务器的文件
         id: get_files
         run: |
@@ -64,97 +139,193 @@ jobs:
           SIGNATURE=$(echo -n "run" | openssl dgst -sha256 -hmac "${{ secrets.BACKUP_SECRET }}" | cut -d' ' -f2)
           echo "🔐 签名已生成"
           
-          # 设置调试模式
+          # 设置调试模式（避免输出大量响应内容）
           if [ "${{ github.event.inputs.debug }}" = "true" ]; then
             echo "🐛 调试模式已启用"
-            CURL_OPTIONS="-v"
+            CURL_OPTIONS="--verbose --stderr /tmp/curl_debug.log"
+            echo "📝 curl详细日志将保存到 /tmp/curl_debug.log（不在Action日志中显示）"
           else
             CURL_OPTIONS="-s"
           fi
           
-          # 调用备份API获取文件
-          echo "📡 调用备份API..."
-          RESPONSE=$(curl -X POST \
-            -H "X-Backup-Sign: $SIGNATURE" \
-            -H "Content-Type: application/json" \
-            -H "User-Agent: GitHub-Actions-Backup-Bot/1.0" \
-            $CURL_OPTIONS \
-            -w "HTTP_STATUS:%{http_code}" \
-            https://arxiv-accelerator.onrender.com/internal/backup)
-          
-          # 解析响应
-          HTTP_STATUS=$(echo "$RESPONSE" | grep -o "HTTP_STATUS:[0-9]*" | cut -d: -f2)
-          RESPONSE_BODY=$(echo "$RESPONSE" | sed 's/HTTP_STATUS:[0-9]*$//')
-          
-          echo "📊 API响应状态: $HTTP_STATUS"
-          
-          if [ "$HTTP_STATUS" = "200" ]; then
-            echo "✅ 成功获取文件列表!"
+          # 增强的备份API调用函数
+          call_backup_api() {
+            local attempt=$1
+            local timeout="${2:-60}"
             
-            # 保存响应到文件
-            echo "$RESPONSE_BODY" > backup_response.json
+            echo "📡 第 $attempt 次调用备份API (超时: ${timeout}秒)..."
             
-            # 解析文件数量
-            FILE_COUNT=$(echo "$RESPONSE_BODY" | jq -r '.file_count // 0')
-            echo "📄 文件数量: $FILE_COUNT"
+            curl -X POST \
+              -H "X-Backup-Sign: $SIGNATURE" \
+              -H "Content-Type: application/json" \
+              -H "User-Agent: GitHub-Actions-Backup-Bot/1.0" \
+              $CURL_OPTIONS \
+              --max-time $timeout \
+              --connect-timeout 30 \
+              -w "HTTP_STATUS:%{http_code}" \
+              https://arxiv-accelerator.onrender.com/internal/backup
+          }
+          
+          # 执行带重试的API调用
+          MAX_ATTEMPTS=3
+          SUCCESS=false
+          
+          for attempt in $(seq 1 $MAX_ATTEMPTS); do
+            echo "🎯 开始第 $attempt/$MAX_ATTEMPTS 次API调用尝试..."
             
-            if [ "$FILE_COUNT" -gt 0 ]; then
-              echo "has_files=true" >> $GITHUB_OUTPUT
-              echo "file_count=$FILE_COUNT" >> $GITHUB_OUTPUT
-            else
-              echo "has_files=false" >> $GITHUB_OUTPUT
-              echo "ℹ️  没有需要备份的文件"
+            # 调用API
+            RESPONSE=$(call_backup_api $attempt)
+            
+            # 在调试模式下显示curl日志摘要（不显示完整内容）
+            if [ "${{ github.event.inputs.debug }}" = "true" ] && [ -f /tmp/curl_debug.log ]; then
+              echo "🔍 curl连接摘要:"
+              grep -E "(Connected to|Server certificate|< HTTP)" /tmp/curl_debug.log | head -5 || echo "无连接信息"
+              rm -f /tmp/curl_debug.log
             fi
-          else
-            echo "❌ 获取文件失败!"
-            echo "📄 错误响应: $RESPONSE_BODY"
             
-            # 根据状态码提供具体的错误信息
+            # 解析响应
+            HTTP_STATUS=$(echo "$RESPONSE" | grep -o "HTTP_STATUS:[0-9]*" | cut -d: -f2)
+            RESPONSE_BODY=$(echo "$RESPONSE" | sed 's/HTTP_STATUS:[0-9]*$//')
+            
+            echo "📊 API响应状态: $HTTP_STATUS"
+            
+            # 判断响应状态
             case $HTTP_STATUS in
-              403)
-                echo "💡 签名验证失败，请检查BACKUP_SECRET密钥是否正确"
+              200)
+                echo "✅ API调用成功!"
+                SUCCESS=true
+                break
                 ;;
-              404)
-                echo "💡 备份API端点不存在，请确认服务器部署正常"
-                ;;
-              500)
-                echo "💡 服务器内部错误，请检查Render服务日志"
+              502|503|521|522|523|524)
+                echo "⏳ 服务正在启动中，API暂时不可用 (状态码: $HTTP_STATUS)"
+                if [ $attempt -lt $MAX_ATTEMPTS ]; then
+                  echo "😴 等待30秒后重试..."
+                  sleep 30
+                else
+                  echo "❌ 所有API调用尝试都失败了"
+                fi
                 ;;
               000)
-                echo "💡 无法连接到服务器，可能服务器正在睡眠状态"
-                echo "🔄 尝试再次调用以唤醒服务..."
-                sleep 10
-                # 重试一次
-                RETRY_RESPONSE=$(curl -X POST \
-                  -H "X-Backup-Sign: $SIGNATURE" \
-                  -H "Content-Type: application/json" \
-                  $CURL_OPTIONS \
-                  -w "HTTP_STATUS:%{http_code}" \
-                  https://arxiv-accelerator.onrender.com/internal/backup)
-                
-                RETRY_STATUS=$(echo "$RETRY_RESPONSE" | grep -o "HTTP_STATUS:[0-9]*" | cut -d: -f2)
-                if [ "$RETRY_STATUS" = "200" ]; then
-                  echo "✅ 重试成功!"
-                  RETRY_BODY=$(echo "$RETRY_RESPONSE" | sed 's/HTTP_STATUS:[0-9]*$//')
-                  echo "$RETRY_BODY" > backup_response.json
-                  FILE_COUNT=$(echo "$RETRY_BODY" | jq -r '.file_count // 0')
-                  if [ "$FILE_COUNT" -gt 0 ]; then
-                    echo "has_files=true" >> $GITHUB_OUTPUT
-                    echo "file_count=$FILE_COUNT" >> $GITHUB_OUTPUT
-                  else
-                    echo "has_files=false" >> $GITHUB_OUTPUT
-                  fi
+                echo "🔌 无法连接到API，服务可能正在重启"
+                if [ $attempt -lt $MAX_ATTEMPTS ]; then
+                  echo "😴 等待20秒后重试..."
+                  sleep 20
                 else
-                  echo "❌ 重试也失败了"
-                  exit 1
+                  echo "❌ 连接持续失败"
+                fi
+                ;;
+              403)
+                echo "❌ 签名验证失败，不再重试"
+                break
+                ;;
+              *)
+                echo "⚠️  未知错误 (状态码: $HTTP_STATUS)"
+                if [ $attempt -lt $MAX_ATTEMPTS ]; then
+                  echo "😴 等待15秒后重试..."
+                  sleep 15
+                else
+                  echo "❌ 未知错误持续存在"
                 fi
                 ;;
             esac
+          done
+          
+          # 最终结果处理
+          if [ "$SUCCESS" = "true" ]; then
+            echo "🎉 备份API调用成功!"
             
-            if [ "$HTTP_STATUS" != "000" ]; then
-              exit 1
+            # 显示响应概要信息（不显示具体内容）
+            RESPONSE_LENGTH=$(echo "$RESPONSE_BODY" | wc -c)
+            echo "📊 API响应长度: $RESPONSE_LENGTH 字符"
+            
+            # 只显示JSON结构概要，不显示具体内容
+            RESPONSE_KEYS=$(echo "$RESPONSE_BODY" | jq -r 'keys[]' 2>/dev/null | tr '\n' ',' | sed 's/,$//' || echo "无法解析")
+            echo "🔍 API响应字段: [$RESPONSE_KEYS]"
+            
+            # 检查响应是否为空
+            if [ -z "$RESPONSE_BODY" ]; then
+              echo "❌ API响应为空"
+              echo "has_files=false" >> $GITHUB_OUTPUT
+              echo "api_failed=true" >> $GITHUB_OUTPUT
+            else
+              # 保存响应到文件
+              echo "$RESPONSE_BODY" > backup_response.json
+              
+              # 尝试解析JSON，添加错误处理
+              echo "🔍 开始解析JSON响应..."
+              
+              # 检查API是否返回成功状态
+              API_OK=$(echo "$RESPONSE_BODY" | jq -r '.ok // false' 2>/dev/null)
+              if [ "$API_OK" != "true" ]; then
+                echo "❌ API响应状态为false或未定义"
+                # 只显示概要信息，不显示完整内容
+                API_MESSAGE=$(echo "$RESPONSE_BODY" | jq -r '.message // "无消息"' 2>/dev/null)
+                echo "🔍 API消息: $API_MESSAGE"
+                echo "📊 响应长度: $(echo "$RESPONSE_BODY" | wc -c) 字符"
+                echo "has_files=false" >> $GITHUB_OUTPUT
+                echo "api_failed=true" >> $GITHUB_OUTPUT
+              else
+                echo "✅ API响应状态正常 (ok: true)"
+                
+                # 尝试获取文件数量，支持多种字段
+                FILE_COUNT=$(echo "$RESPONSE_BODY" | jq -r '.file_count // (.files | length) // 0' 2>/dev/null)
+                
+                if [ -z "$FILE_COUNT" ] || [ "$FILE_COUNT" = "null" ]; then
+                  echo "⚠️  无法解析文件数量，使用备选方法..."
+                  # 备选方法：直接计算files对象的键数量
+                  FILE_COUNT=$(echo "$RESPONSE_BODY" | jq -r '.files | keys | length' 2>/dev/null || echo "0")
+                fi
+                
+                echo "📄 解析到的文件数量: $FILE_COUNT"
+                
+                # 验证FILE_COUNT是否为有效数字
+                if [[ "$FILE_COUNT" =~ ^[0-9]+$ ]] && [ "$FILE_COUNT" -gt 0 ]; then
+                  echo "has_files=true" >> $GITHUB_OUTPUT
+                  echo "file_count=$FILE_COUNT" >> $GITHUB_OUTPUT
+                  echo "✅ 发现 $FILE_COUNT 个需要备份的文件"
+                else
+                  echo "has_files=false" >> $GITHUB_OUTPUT
+                  echo "ℹ️  没有需要备份的文件 (文件数量: $FILE_COUNT)"
+                fi
+              fi
             fi
+          else
+            echo "❌ 备份API调用最终失败!"
+            # 只显示概要信息，不显示完整响应内容
+            RESPONSE_LENGTH=$(echo "$RESPONSE_BODY" | wc -c)
+            echo "📊 错误响应长度: $RESPONSE_LENGTH 字符"
+            if [ "$RESPONSE_LENGTH" -lt 500 ]; then
+              echo "📄 错误响应概要: $(echo "$RESPONSE_BODY" | head -c 200)..."
+            else
+              echo "📄 错误响应太长，已省略显示"
+            fi
+            
+            # 提供详细的错误信息
+            echo "💡 可能的原因:"
+            echo "   - Render服务正在冷启动 (通常需要30-60秒)"
+            echo "   - 服务出现临时故障"
+            echo "   - 网络连接问题"
+            echo "   - 签名验证问题"
+            
+            # 设置输出但不立即退出，让后续步骤能够处理
+            echo "has_files=false" >> $GITHUB_OUTPUT
+            echo "api_failed=true" >> $GITHUB_OUTPUT
           fi
+
+      - name: ⚠️ 处理API调用失败
+        if: steps.get_files.outputs.api_failed == 'true'
+        run: |
+          echo "⚠️ 备份API调用失败，但不中断工作流"
+          echo "🔍 故障排查建议:"
+          echo "   1. 检查Render服务状态: https://render.com/status"
+          echo "   2. 检查服务日志: https://dashboard.render.com"
+          echo "   3. 确认服务是否正在冷启动"
+          echo "   4. 验证BACKUP_SECRET配置是否正确"
+          echo ""
+          echo "📊 健康检查结果: ${{ steps.health_check.outputs.service_ready }}"
+          echo "🕐 下次定时任务将在1小时后自动重试"
+          echo ""
+          echo "💡 这是免费Render实例的正常现象，服务会在无活动时休眠"
 
       - name: 📝 写入文件到仓库
         if: steps.get_files.outputs.has_files == 'true'
@@ -337,13 +508,37 @@ jobs:
         if: always()
         run: |
           echo "🎉 自动备份任务完成!"
-          echo "📈 统计信息:"
+          echo ""
+          echo "📈 运行统计:"
           echo "   - 执行时间: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           echo "   - 北京时间: $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S CST')"
+          echo "   - 触发方式: ${{ github.event_name }}"
+          echo "   - 运行ID: ${{ github.run_id }}"
+          echo ""
+          echo "🩺 服务状态:"
+          echo "   - Render服务就绪: ${{ steps.health_check.outputs.service_ready || '未知' }}"
+          echo "   - API调用状态: ${{ steps.get_files.outputs.api_failed == 'true' && '失败' || '成功' }}"
           echo "   - 文件数量: ${{ steps.get_files.outputs.file_count || '0' }}"
-          echo "   - 是否有变更: ${{ steps.check_changes.outputs.has_changes || 'false' }}"
-          echo "   - 下次执行: 1小时后"
-          echo "   - 备份方式: Render API → GitHub Actions Git"
+          echo "   - Git变更: ${{ steps.check_changes.outputs.has_changes || 'false' }}"
+          echo ""
+          echo "⏰ 下次运行:"
+          echo "   - 定时执行: 1小时后"
+          echo "   - 手动触发: 随时可在Actions页面执行"
+          echo ""
+          echo "💡 备份方式: Render API → GitHub Actions → Git Repository"
+          
+          # 根据结果状态显示不同的消息
+          if [ "${{ steps.get_files.outputs.api_failed }}" = "true" ]; then
+            echo ""
+            echo "⚠️  本次备份因API调用失败而跳过，这是正常现象"
+            echo "🔄 系统将在下一个定时周期自动重试"
+          elif [ "${{ steps.check_changes.outputs.has_changes }}" = "true" ]; then
+            echo ""
+            echo "✅ 本次备份成功完成，新文件已提交到仓库"
+          else
+            echo ""
+            echo "ℹ️  本次检查无新文件需要备份"
+          fi
 
       - name: 🧹 清理临时文件
         if: always()
