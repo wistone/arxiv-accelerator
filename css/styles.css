@@ -1,0 +1,701 @@
+/* Arxiv文章初筛小助手 - 主样式表 */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    padding: 20px;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    background: white;
+    border-radius: 15px;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+    overflow: hidden;
+    transition: max-width 0.3s ease;
+}
+
+/* 分析模式下使用更宽的容器 */
+.container.analysis-mode {
+    max-width: 1600px;
+}
+
+/* 分析模式下的响应式设计 */
+@media (max-width: 1650px) {
+    .container.analysis-mode {
+        max-width: 95%;
+        margin: 0 2.5%;
+    }
+}
+
+/* 移动设备上的优化 */
+@media (max-width: 768px) {
+    .container.analysis-mode {
+        max-width: 100%;
+        margin: 0;
+        border-radius: 0;
+    }
+    
+    body {
+        padding: 10px;
+    }
+}
+
+/* 分析模式下的表格优化 */
+.container.analysis-mode .title-cell {
+    max-width: 350px; /* 在分析模式下增加标题列宽度 */
+    min-width: 280px;
+}
+
+.container.analysis-mode .authors-cell {
+    max-width: 180px; /* 在分析模式下略微减小作者列宽度 */
+    min-width: 140px;
+}
+
+.container.analysis-mode .abstract-cell {
+    max-width: 400px; /* 在分析模式下增加摘要列宽度 */
+    min-width: 300px;
+}
+
+.header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 30px;
+    text-align: center;
+}
+
+.header h1 {
+    font-size: 2.5em;
+    margin-bottom: 10px;
+    font-weight: 300;
+}
+
+.header p {
+    font-size: 1.1em;
+    opacity: 0.9;
+}
+
+.controls {
+    padding: 30px;
+    background: #f8f9fa;
+    border-bottom: 1px solid #e9ecef;
+}
+
+.control-group {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+}
+
+.control-item {
+    display: flex;
+    flex-direction: column;
+    min-width: 200px;
+}
+
+.control-item label {
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: #495057;
+}
+
+.control-item select, .control-item input {
+    padding: 12px 15px;
+    border: 2px solid #e9ecef;
+    border-radius: 8px;
+    font-size: 16px;
+    transition: all 0.3s ease;
+    background: white;
+}
+
+.control-item select:focus, .control-item input:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.button-group {
+    display: flex;
+    gap: 15px;
+    flex-wrap: wrap;
+}
+
+.btn {
+    padding: 12px 25px;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+}
+
+.btn-secondary {
+    background: #6c757d;
+    color: white;
+}
+
+.btn-secondary:hover {
+    background: #5a6268;
+    transform: translateY(-2px);
+}
+
+.btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.content {
+    padding: 30px;
+}
+
+.loading {
+    text-align: center;
+    padding: 40px;
+    color: #6c757d;
+}
+
+.spinner {
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid #667eea;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 20px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.error {
+    background: #f8d7da;
+    color: #721c24;
+    padding: 15px;
+    border-radius: 8px;
+    margin: 20px 0;
+    border: 1px solid #f5c6cb;
+}
+
+.success {
+    background: #d4edda;
+    color: #155724;
+    padding: 15px;
+    border-radius: 8px;
+    margin: 20px 0;
+    border: 1px solid #c3e6cb;
+}
+
+.table-container {
+    overflow-x: auto;
+    margin-top: 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.arxiv-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: white;
+    font-size: 14px;
+}
+
+.arxiv-table th {
+    background: #f8f9fa;
+    padding: 15px 12px;
+    text-align: left;
+    font-weight: 600;
+    color: #495057;
+    border-bottom: 2px solid #dee2e6;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.arxiv-table td {
+    padding: 12px;
+    border-bottom: 1px solid #e9ecef;
+    vertical-align: top;
+}
+
+.arxiv-table tr:hover {
+    background: #f8f9fa;
+}
+
+.title-cell {
+    max-width: 300px;
+    min-width: 250px;
+    font-weight: 600;
+    color: #495057;
+}
+
+.title-content {
+    margin-bottom: 8px;
+    line-height: 1.4;
+}
+
+.title-link {
+    margin-top: 5px;
+}
+
+.title-link a {
+    color: #667eea;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 12px;
+    padding: 4px 8px;
+    background: #f8f9fa;
+    border-radius: 4px;
+    border: 1px solid #e9ecef;
+    display: inline-block;
+}
+
+.title-link a:hover {
+    background: #e9ecef;
+    text-decoration: none;
+}
+
+.authors-cell {
+    max-width: 200px; /* 缩窄作者列宽度 */
+    min-width: 150px;
+    color: #6c757d;
+    font-size: 13px;
+}
+
+.authors-content {
+    max-height: 75px; /* 约5行的高度 */
+    overflow: hidden;
+    position: relative;
+    line-height: 1.4;
+}
+
+.authors-content.expanded {
+    max-height: none;
+}
+
+.authors-toggle {
+    color: #667eea;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 600;
+    margin-top: 3px;
+    display: block;
+}
+
+.authors-toggle:hover {
+    text-decoration: underline;
+}
+
+.abstract-cell {
+    max-width: 500px; /* 增加摘要列宽度 */
+    min-width: 350px;
+    position: relative;
+}
+
+.abstract-content {
+    max-height: 120px; /* 增加默认显示高度 */
+    overflow: hidden;
+    position: relative;
+    line-height: 1.5;
+    color: #495057;
+    text-align: justify; /* 两端对齐，提高可读性 */
+}
+
+.abstract-content.expanded {
+    max-height: none;
+}
+
+.abstract-toggle {
+    color: #667eea;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    margin-top: 5px;
+    display: block;
+}
+
+.abstract-toggle:hover {
+    text-decoration: underline;
+}
+
+.number-cell {
+    text-align: center;
+    font-weight: 600;
+    color: #495057;
+    min-width: 60px;
+}
+
+.id-cell {
+    text-align: center;
+    font-family: monospace;
+    color: #6c757d;
+    min-width: 80px;
+}
+
+.stats {
+    background: #e9ecef;
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.stat-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    color: #495057;
+}
+
+.stat-value {
+    background: #667eea;
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+/* 分析进度弹窗样式 */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(0,0,0,0.5);
+}
+
+.modal-content {
+    background-color: #fefefe;
+    margin: 10% auto;
+    padding: 30px;
+    border: none;
+    border-radius: 15px;
+    width: 80%;
+    max-width: 800px;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    border-bottom: 2px solid #e9ecef;
+}
+
+.modal-title {
+    font-size: 1.5em;
+    font-weight: 600;
+    color: #495057;
+}
+
+.close {
+    color: #aaa;
+    float: right;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.close:hover,
+.close:focus {
+    color: #000;
+    text-decoration: none;
+}
+
+.progress-container {
+    margin: 20px 0;
+}
+
+.progress-bar {
+    width: 100%;
+    height: 25px;
+    background-color: #e9ecef;
+    border-radius: 15px;
+    overflow: hidden;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    width: 0%;
+    transition: width 0.3s ease;
+    border-radius: 15px;
+}
+
+.progress-text {
+    text-align: center;
+    margin: 10px 0;
+    font-weight: 600;
+    color: #495057;
+}
+
+.current-paper {
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 8px;
+    margin: 15px 0;
+    border-left: 4px solid #667eea;
+}
+
+.current-paper h4 {
+    margin: 0 0 8px 0;
+    color: #495057;
+    font-size: 16px;
+}
+
+.current-paper p {
+    margin: 5px 0;
+    color: #6c757d;
+    font-size: 14px;
+}
+
+.analysis-summary {
+    background: #e7f3ff;
+    padding: 15px;
+    border-radius: 8px;
+    margin: 15px 0;
+    border: 1px solid #b3d9ff;
+}
+
+.test-options {
+    background: #fff3cd;
+    padding: 15px;
+    border-radius: 8px;
+    margin: 15px 0;
+    border: 1px solid #ffeaa7;
+}
+
+.test-options select {
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    margin: 0 10px;
+}
+
+/* 分析结果显示样式 */
+.filter-cell {
+    text-align: center;
+    min-width: 100px;
+}
+
+.filter-result {
+    padding: 6px 12px;
+    border-radius: 15px;
+    font-weight: 600;
+    font-size: 13px;
+    display: inline-block;
+}
+
+.filter-result.passed {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.filter-result.rejected {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+.score-cell {
+    text-align: center;
+    min-width: 80px; /* 减小宽度，因为现在是单独的列 */
+    white-space: nowrap; /* 防止换行 */
+}
+
+.score-display {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+}
+
+.score-values {
+    font-weight: 700;
+    font-size: 18px; /* 稍微增大字体 */
+    color: #495057;
+}
+
+.score-label {
+    font-size: 11px;
+    color: #6c757d;
+    font-weight: 500;
+}
+
+.details-cell {
+    max-width: 300px; /* 缩窄详细分析列宽度 */
+    min-width: 250px;
+}
+
+.analysis-details {
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.analysis-reason {
+    margin-bottom: 8px;
+    color: #495057;
+}
+
+.analysis-core {
+    margin-bottom: 6px;
+    color: #0066cc;
+    font-size: 12px;
+}
+
+.analysis-plus {
+    margin-bottom: 6px;
+    color: #28a745;
+    font-size: 12px;
+}
+
+.analysis-raw {
+    margin-top: 8px;
+}
+
+.raw-json-toggle {
+    color: #667eea;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 600;
+    display: block;
+    padding: 4px 0;
+}
+
+.raw-json-toggle:hover {
+    text-decoration: underline;
+}
+
+.raw-json {
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 4px;
+    margin-top: 5px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.raw-json pre {
+    margin: 0;
+    padding: 10px;
+    font-size: 11px;
+    font-family: 'Consolas', 'Monaco', monospace;
+    color: #495057;
+    line-height: 1.3;
+}
+
+.analysis-error {
+    color: #dc3545;
+    font-size: 12px;
+    font-style: italic;
+}
+
+/* 通过筛选的论文行高亮 */
+.arxiv-table tr.passed-filter {
+    background: #f8fff8 !important;
+    border-left: 4px solid #28a745;
+}
+
+.arxiv-table tr.passed-filter:hover {
+    background: #f0fff0 !important;
+}
+
+/* 排序相关样式 */
+.sortable {
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+}
+
+.sortable:hover {
+    background: #e9ecef;
+}
+
+.sortable:hover .sort-indicator {
+    color: #667eea;
+    transform: scale(1.05);
+}
+
+.sort-indicator {
+    margin-left: 5px;
+    font-size: 14px;
+    color: #6c757d;
+    transition: all 0.2s ease;
+}
+
+.sort-indicator.active {
+    color: #667eea;
+    font-weight: bold;
+    transform: scale(1.1);
+}
+
+@media (max-width: 768px) {
+    .control-group {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .control-item {
+        min-width: auto;
+    }
+    
+    .button-group {
+        flex-direction: column;
+    }
+    
+    .btn {
+        width: 100%;
+        justify-content: center;
+    }
+    
+    .stats {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .modal-content {
+        width: 95%;
+        margin: 5% auto;
+        padding: 20px;
+    }
+}

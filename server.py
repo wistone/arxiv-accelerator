@@ -24,6 +24,16 @@ from doubao_client import DoubaoClient
 app = Flask(__name__)
 CORS(app)  # 允许跨域请求
 
+# 配置静态文件路由，允许访问js目录下的文件
+@app.route('/js/<path:filename>')
+def serve_js_files(filename):
+    return send_from_directory('js', filename)
+
+# 配置静态文件路由，允许访问css目录下的文件
+@app.route('/css/<path:filename>')
+def serve_css_files(filename):
+    return send_from_directory('css', filename)
+
 # 全局变量用于跟踪分析进度
 analysis_progress = {}
 analysis_lock = threading.Lock()

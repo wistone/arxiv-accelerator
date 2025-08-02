@@ -33,7 +33,7 @@ def crawl_arxiv_papers(target_date_str, category="cs.CV"):
                 print(f"目标日期: {target_date}")
                 print(f"论文分类: {category}")
                 print(f"昨天的日期: {yesterday}")
-                print(f"当前UTC时间: {dt.datetime.now(dt.UTC)}")
+                print(f"当前UTC时间: {dt.datetime.now(dt.timezone.utc)}")
                 print(f"当前本地时间: {dt.datetime.now()}")
                 
                 # 构建日期范围查询
