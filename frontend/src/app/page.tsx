@@ -11,7 +11,6 @@ import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { ArticlesTable } from '@/components/table/ArticlesTable'
 import { AnalysisModal } from '@/components/analysis/AnalysisModal'
 import { useAppStore } from '@/stores/appStore'
-import { useUrlState } from '@/hooks/useUrlState'
 
 const queryClient = new QueryClient()
 
@@ -26,7 +25,6 @@ function ArxivAssistantContent() {
     sortDirection
   } = useAppStore()
   
-  const { updateUrlState } = useUrlState()
   
   const isAnalysisMode = currentAnalysisArticles.length > 0
   const displayArticles = isAnalysisMode ? currentAnalysisArticles : currentArticles
@@ -39,9 +37,6 @@ function ArxivAssistantContent() {
     const newDirection = sortColumn === column && sortDirection === 'asc' ? 'desc' : 'asc'
     setSortColumn(column)
     setSortDirection(newDirection)
-    
-    // Update URL state
-    updateUrlState('analysis', '', '', '')
   }
 
   const sortedArticles = React.useMemo(() => {

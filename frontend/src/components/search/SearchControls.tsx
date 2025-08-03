@@ -27,12 +27,12 @@ export const SearchControls = () => {
   }
 
   return (
-    <div className="p-8 bg-gray-50 border-b border-gray-200">
+    <div className="p-8 bg-muted/30 border-b">
       <div className="flex flex-wrap gap-5 items-end mb-5">
         {/* Date Selection */}
         <div className="flex flex-col min-w-[200px]">
-          <Label htmlFor="date-picker" className="mb-2 font-semibold text-gray-700">
-            📅 选择日期
+          <Label htmlFor="date-picker" className="mb-2 font-medium text-foreground">
+            选择日期
           </Label>
           <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
             <PopoverTrigger asChild>
@@ -67,8 +67,8 @@ export const SearchControls = () => {
 
         {/* Category Selection */}
         <div className="flex flex-col min-w-[200px]">
-          <Label htmlFor="category-select" className="mb-2 font-semibold text-gray-700">
-            🏷️ 板块筛选
+          <Label htmlFor="category-select" className="mb-2 font-medium text-foreground">
+            板块筛选
           </Label>
           <Select value={selectedCategory} onValueChange={setSelectedCategory}>
             <SelectTrigger>

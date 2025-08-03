@@ -20,9 +20,9 @@ export const StatusMessages = () => {
       )}
       
       {success && (
-        <Alert className="mb-4 border-green-200 bg-green-50">
-          <CheckCircle className="h-4 w-4 text-green-600" />
-          <AlertDescription className="text-green-800">
+        <Alert className="mb-4 border-emerald-200 bg-emerald-50">
+          <CheckCircle className="h-4 w-4 text-emerald-600" />
+          <AlertDescription className="text-emerald-900">
             {success}
           </AlertDescription>
         </Alert>

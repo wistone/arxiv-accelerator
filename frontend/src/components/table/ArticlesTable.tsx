@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { 
@@ -32,6 +32,73 @@ interface ArticlesTableProps {
   onSort?: (column: string) => void
 }
 
+// Expandable content component
+const ExpandableContent = ({ 
+  content, 
+  maxHeight, 
+  className,
+  textAlign = 'left'
+}: { 
+  content: string; 
+  maxHeight: string; 
+  className?: string;
+  textAlign?: 'left' | 'justify';
+}) => {
+  const [isExpanded, setIsExpanded] = useState(false)
+  const [shouldShowToggle, setShouldShowToggle] = useState(false)
+  
+  React.useEffect(() => {
+    // Check if content needs truncation
+    const element = document.createElement('div')
+    element.style.cssText = `
+      position: absolute; 
+      visibility: hidden; 
+      height: auto; 
+      width: 280px; 
+      line-height: 1.5;
+      font-size: 13px;
+      word-wrap: break-word;
+      word-break: break-word;
+      overflow-wrap: break-word;
+    `
+    element.textContent = content
+    document.body.appendChild(element)
+    
+    const fullHeight = element.offsetHeight
+    document.body.removeChild(element)
+    
+    const maxHeightPx = parseInt(maxHeight.replace('px', ''))
+    setShouldShowToggle(fullHeight > maxHeightPx)
+  }, [content, maxHeight])
+
+  return (
+    <div className={`${className} break-words`}>
+      <div 
+        className="overflow-hidden relative transition-all duration-300 break-words"
+        style={{ 
+          maxHeight: isExpanded ? 'none' : maxHeight,
+          lineHeight: '1.5',
+          wordWrap: 'break-word',
+          wordBreak: 'break-word',
+          overflowWrap: 'break-word',
+          whiteSpace: 'normal',
+          textAlign: textAlign
+        }}
+      >
+        {content}
+      </div>
+      {shouldShowToggle && (
+        <button
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="text-primary hover:underline text-xs font-semibold mt-1 block cursor-pointer"
+        >
+          {isExpanded ? '收起' : '展开'}
+        </button>
+      )}
+    </div>
+  )
+}
+
 export const ArticlesTable = ({ 
   articles, 
   isAnalysisMode = false, 
@@ -44,7 +111,7 @@ export const ArticlesTable = ({
   }
 
   const getSortIndicator = (column: string) => {
-    if (sortColumn !== column) return '↕️'
+    if (sortColumn !== column) return '↕'
     return sortDirection === 'asc' ? '↑' : '↓'
   }
 
@@ -59,7 +126,7 @@ export const ArticlesTable = ({
       <div className="mb-6">
         <div className="flex items-center gap-4">
           <Badge variant="secondary" className="text-lg px-4 py-2">
-            📄 文章总数: {articles.length}
+            文章总数: {articles.length}
           </Badge>
         </div>
       </div>
@@ -68,17 +135,17 @@ export const ArticlesTable = ({
       <Card>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
-            <Table>
+            <Table className="table-fixed">
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-16">序号</TableHead>
                   
-                  {isAnalysisMode ? (
+                  {isAnalysisMode && (
                     <>
                       <TableHead className="w-24">筛选结果</TableHead>
                       <TableHead 
                         className={cn(
-                          "w-20 cursor-pointer hover:bg-gray-50",
+                          "w-20 cursor-pointer hover:bg-muted/50",
                           onSort && "cursor-pointer"
                         )}
                         onClick={() => onSort?.('raw_score')}
@@ -89,22 +156,20 @@ export const ArticlesTable = ({
                       </TableHead>
                       <TableHead className="w-32">详细分析</TableHead>
                     </>
-                  ) : (
-                    <TableHead className="w-24">ID</TableHead>
                   )}
                   
                   <TableHead className={cn(
-                    isAnalysisMode ? "max-w-[280px]" : "max-w-[400px]"
+                    isAnalysisMode ? "max-w-[280px] min-w-[220px]" : "max-w-[320px] min-w-[260px]"
                   )}>
                     标题
                   </TableHead>
                   <TableHead className={cn(
-                    isAnalysisMode ? "max-w-[180px]" : "max-w-[200px]"
+                    isAnalysisMode ? "max-w-[180px] min-w-[140px]" : "max-w-[200px] min-w-[150px]"
                   )}>
                     作者
                   </TableHead>
                   <TableHead className={cn(
-                    isAnalysisMode ? "max-w-[350px]" : "max-w-[400px]"
+                    isAnalysisMode ? "max-w-[350px] min-w-[280px]" : "max-w-[420px] min-w-[320px]"
                   )}>
                     摘要
                   </TableHead>
@@ -116,19 +181,19 @@ export const ArticlesTable = ({
               </TableHeader>
               <TableBody>
                 {articles.map((article, index) => (
-                  <TableRow key={article.id} className="hover:bg-gray-50">
+                  <TableRow key={`${article.id}-${index}`} className="hover:bg-muted/50">
                     <TableCell className="font-medium text-center">
                       {article.number || index + 1}
                     </TableCell>
                     
-                    {isAnalysisMode ? (
+                    {isAnalysisMode && (
                       <>
                         <TableCell>
                           <Badge 
-                            variant={article.filter_result === '推荐' ? 'default' : 'secondary'}
+                            variant={article.filter_result === '推荐' ? 'default' : 'destructive'}
                             className={cn(
                               article.filter_result === '推荐' 
-                                ? 'bg-green-100 text-green-800 hover:bg-green-200' 
+                                ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200' 
                                 : 'bg-red-100 text-red-800 hover:bg-red-200'
                             )}
                           >
@@ -147,33 +212,45 @@ export const ArticlesTable = ({
                           </div>
                         </TableCell>
                       </>
-                    ) : (
-                      <TableCell className="font-mono text-sm">
-                        {article.id}
-                      </TableCell>
                     )}
                     
-                    <TableCell>
-                      <div className="font-medium">
-                        {truncateText(article.title, isAnalysisMode ? 100 : 150)}
+                    <TableCell className={cn(
+                      isAnalysisMode ? "max-w-[280px] min-w-[220px]" : "max-w-[320px] min-w-[260px]",
+                      "break-words"
+                    )}>
+                      <div 
+                        className="font-medium text-foreground break-words" 
+                        style={{ 
+                          lineHeight: '1.4',
+                          wordWrap: 'break-word',
+                          wordBreak: 'break-word',
+                          overflowWrap: 'break-word',
+                          whiteSpace: 'normal'
+                        }}
+                      >
+                        {article.title}
                       </div>
                     </TableCell>
-                    <TableCell>
-                      <div className="text-sm text-gray-600">
-                        {truncateText(article.authors, isAnalysisMode ? 80 : 120)}
-                      </div>
+                    <TableCell className={cn(
+                      isAnalysisMode ? "max-w-[180px] min-w-[140px]" : "max-w-[200px] min-w-[150px]",
+                      "break-words"
+                    )}>
+                      <ExpandableContent
+                        content={article.authors}
+                        maxHeight="75px"
+                        className="text-sm text-muted-foreground break-words"
+                      />
                     </TableCell>
-                    <TableCell>
-                      <div className="text-sm">
-                        <details className="cursor-pointer">
-                          <summary className="font-medium text-blue-600 hover:text-blue-800">
-                            查看摘要 {article.abstract && `(${article.abstract.length} 字符)`}
-                          </summary>
-                          <div className="mt-2 text-gray-700 whitespace-pre-wrap">
-                            {article.abstract}
-                          </div>
-                        </details>
-                      </div>
+                    <TableCell className={cn(
+                      isAnalysisMode ? "max-w-[350px] min-w-[280px]" : "max-w-[420px] min-w-[320px]",
+                      "break-words"
+                    )}>
+                      <ExpandableContent
+                        content={article.abstract}
+                        maxHeight="120px"
+                        className="text-sm text-foreground break-words"
+                        textAlign="justify"
+                      />
                     </TableCell>
                     
                     {!isAnalysisMode && (
@@ -183,7 +260,7 @@ export const ArticlesTable = ({
                             href={article.arxiv_url} 
                             target="_blank" 
                             rel="noopener noreferrer"
-                            className="text-blue-600 hover:text-blue-800 text-xs"
+                            className="text-primary hover:text-primary/80 text-xs"
                           >
                             arXiv
                           </a>
@@ -191,7 +268,7 @@ export const ArticlesTable = ({
                             href={article.pdf_url} 
                             target="_blank" 
                             rel="noopener noreferrer"
-                            className="text-red-600 hover:text-red-800 text-xs"
+                            className="text-destructive hover:text-destructive/80 text-xs"
                           >
                             PDF
                           </a>

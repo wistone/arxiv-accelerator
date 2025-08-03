@@ -38,24 +38,28 @@ export class ApiClient {
   }
 
   async analyzeArticles(date: string, category: string, testCount?: string) {
+    const payload = { 
+      date, 
+      category, 
+      test_count: testCount === '' || !testCount ? null : parseInt(testCount)
+    }
+    console.log('analyzeArticles payload:', payload)
     return this.request('/api/analyze_papers', {
       method: 'POST',
-      body: JSON.stringify({ 
-        date, 
-        category, 
-        test_count: testCount || '' 
-      }),
+      body: JSON.stringify(payload),
     });
   }
 
-  async getAnalysisResults(date: string, category: string, testCount?: string) {
+  async getAnalysisResults(date: string, category: string, rangeType?: string) {
+    const payload = { 
+      date, 
+      category, 
+      range_type: rangeType || 'full'
+    }
+    console.log('getAnalysisResults payload:', payload)
     return this.request('/api/get_analysis_results', {
       method: 'POST',
-      body: JSON.stringify({ 
-        date, 
-        category, 
-        test_count: testCount || '' 
-      }),
+      body: JSON.stringify(payload),
     });
   }
 
