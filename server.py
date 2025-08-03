@@ -24,24 +24,78 @@ from doubao_client import DoubaoClient
 app = Flask(__name__)
 CORS(app)  # 允许跨域请求
 
-# 配置静态文件路由，允许访问js目录下的文件
+# 检查前端模式
+FRONTEND_MODE = os.getenv('FRONTEND_MODE', 'auto')
+REACT_BUILD_PATH = os.path.join(os.path.dirname(__file__), 'frontend', 'dist')
+REACT_AVAILABLE = os.path.exists(REACT_BUILD_PATH) and os.path.exists(os.path.join(REACT_BUILD_PATH, 'index.html'))
+
+print(f"🎨 前端模式: {FRONTEND_MODE}")
+print(f"⚛️  React构建可用: {REACT_AVAILABLE}")
+
+# 配置静态文件路由，允许访问js目录下的文件 (经典界面)
 @app.route('/js/<path:filename>')
 def serve_js_files(filename):
     return send_from_directory('js', filename)
 
-# 配置静态文件路由，允许访问css目录下的文件
+# 配置静态文件路由，允许访问css目录下的文件 (经典界面)
 @app.route('/css/<path:filename>')
 def serve_css_files(filename):
     return send_from_directory('css', filename)
+
+# React前端静态文件路由
+@app.route('/assets/<path:filename>')
+def serve_react_assets(filename):
+    if REACT_AVAILABLE:
+        return send_from_directory(os.path.join(REACT_BUILD_PATH, 'assets'), filename)
+    else:
+        abort(404)
 
 # 全局变量用于跟踪分析进度
 analysis_progress = {}
 analysis_lock = threading.Lock()
 
-# 设置静态文件目录
+# 主页路由 - 智能选择前端
 @app.route('/')
 def index():
+    # 根据前端模式和可用性决定返回哪个界面
+    if FRONTEND_MODE == 'html' or not REACT_AVAILABLE:
+        # 返回经典HTML界面
+        return send_from_directory('.', 'arxiv_assistant.html')
+    else:
+        # 返回React界面
+        return send_from_directory(REACT_BUILD_PATH, 'index.html')
+
+# 经典HTML界面 (总是可用)
+@app.route('/classic')
+def classic():
     return send_from_directory('.', 'arxiv_assistant.html')
+
+# React界面 (如果可用)
+@app.route('/react')
+def react():
+    if REACT_AVAILABLE:
+        return send_from_directory(REACT_BUILD_PATH, 'index.html')
+    else:
+        return "React界面不可用，请先构建前端或访问 /classic 使用经典界面", 404
+
+# 处理React路由 (SPA支持)
+@app.route('/<path:path>')
+def react_app(path):
+    # 如果是API请求，跳过
+    if path.startswith('api/'):
+        abort(404)
+    
+    # 如果是静态资源请求且文件存在，正常处理
+    static_file_path = os.path.join(REACT_BUILD_PATH, path)
+    if REACT_AVAILABLE and os.path.exists(static_file_path):
+        return send_from_directory(REACT_BUILD_PATH, path)
+    
+    # React SPA路由 - 返回index.html
+    if REACT_AVAILABLE and FRONTEND_MODE != 'html':
+        return send_from_directory(REACT_BUILD_PATH, 'index.html')
+    
+    # 如果React不可用，返回404
+    abort(404)
 
 @app.route('/api/search_articles', methods=['POST'])
 def search_articles():

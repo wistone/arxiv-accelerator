@@ -1,8 +1,17 @@
+# Core Flask Backend Dependencies
 Flask==2.3.3
 Flask-CORS==4.0.0
 python-dotenv>=0.19.0
+
+# AI/API Dependencies
 openai>=1.0.0
+
+# Data Processing
 pandas>=1.3.0
 feedparser>=6.0.0
 requests>=2.25.0
-tabulate>=0.8.0 
+tabulate>=0.8.0
+
+# Optional: For development and Node.js management
+# Uncomment if you want Python to manage Node.js processes
+# subprocess32>=3.5.0  # For Python < 3.3 subprocess improvements 

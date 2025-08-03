@@ -1,8 +1,8 @@
 # 📚 Arxiv 论文智能分析助手
 
-一个集成了论文爬取、智能分析和Web界面的完整工具，帮助研究人员高效筛选和分析Arxiv论文。
+一个集成了论文爬取、智能分析和现代Web界面的完整工具，帮助研究人员高效筛选和分析Arxiv论文。
 
-https://arxiv-accelerator.onrender.com/
+🌐 **Live Demo**: https://arxiv-accelerator.onrender.com/
 
 ## 🌟 功能特点
 
@@ -18,7 +18,9 @@ https://arxiv-accelerator.onrender.com/
 - ✅ 智能评分系统（核心特征 + 加分特征）
 - ✅ 支持批量处理和测试模式
 
-### 🖥️ Web界面
+### 🖥️ 双重Web界面
+- ✅ **现代React界面** - shadcn/ui组件，增强的用户体验
+- ✅ **经典HTML界面** - 原始界面，向后兼容
 - ✅ 响应式设计，支持桌面和移动设备
 - ✅ 实时分析进度显示
 - ✅ 智能缓存检测，避免重复分析
@@ -28,8 +30,16 @@ https://arxiv-accelerator.onrender.com/
 ## 🚀 快速开始
 
 ### 1. 安装依赖
+
+#### 后端依赖 (Flask + Python)
 ```bash
 pip install -r requirements.txt
+```
+
+#### 前端依赖 (React + Node.js) - 可选
+```bash
+cd frontend
+npm install
 ```
 
 ### 2. 配置豆包API
@@ -70,16 +80,51 @@ python test/test_doubao.py
 ```
 
 ### 3. 启动服务
+
+#### 选项A: 使用启动脚本 (推荐)
 ```bash
 # Linux/Mac
 ./start.sh
 
-# 或手动启动
+# Windows
+start.bat  # 如果有的话，或者使用git bash运行start.sh
+```
+
+#### 选项B: 手动启动不同前端
+
+**仅后端 + 原HTML界面**
+```bash
 python server.py
+# 访问: http://localhost:8080 (原界面)
+```
+
+**后端 + React开发模式**
+```bash
+# 终端1: 启动后端
+python server.py
+
+# 终端2: 启动React前端
+cd frontend
+npm run dev
+# 访问: http://localhost:3000 (React界面)
+```
+
+**生产模式 (React构建后的静态文件)**
+```bash
+# 先构建React
+cd frontend
+npm run build
+
+# 启动Flask服务器 (自动提供React构建文件)
+cd ..
+python server.py
+# 访问: http://localhost:8080 (优先显示React界面)
 ```
 
 ### 4. 访问应用
-打开浏览器访问: http://localhost:8080
+
+- **React界面** (推荐): http://localhost:3000 (开发模式) 或 http://localhost:8080 (生产模式)
+- **经典HTML界面**: http://localhost:8080/classic (始终可用)
 
 ### 5. 使用流程
 1. **选择日期和板块** (cs.CV、cs.LG 或 cs.AI)
@@ -110,7 +155,7 @@ git push origin main
 4. 配置服务：
    - **Name**: `arxiv-accelerator`
    - **Environment**: `Python 3`
-   - **Build Command**: `pip install -r requirements.txt`
+   - **Build Command**: `chmod +x start.sh && ./start.sh --build-only`
    - **Start Command**: `python server.py`
 
 #### 3. 配置环境变量
@@ -152,10 +197,15 @@ python server.py
 arxiv-accelerator/
 ├── 📄 核心文件
 │   ├── server.py                      # Flask Web服务器
-│   ├── arxiv_assistant.html           # 前端界面
+│   ├── arxiv_assistant.html           # 经典HTML界面
 │   ├── crawl_raw_info.py              # 论文爬取模块
 │   ├── paper_analysis_processor.py    # 论文分析处理器
 │   └── doubao_client.py               # 豆包API客户端
+├── 🚀 现代前端
+│   └── frontend/                      # React + shadcn/ui前端
+│       ├── src/                      # React源码
+│       ├── package.json              # Node.js依赖
+│       └── README.md                 # 前端文档
 ├── 🧪 测试脚本
 │   ├── test_paper_analysis.py         # 论文分析测试
 │   ├── test_paper_evaluation.py       # 论文评估测试
@@ -164,7 +214,7 @@ arxiv-accelerator/
 │   └── demo_paper_analysis.py         # 分析功能演示
 ├── 📝 配置文件
 │   ├── requirements.txt               # Python依赖
-│   ├── start.sh                      # 启动脚本
+│   ├── start.sh                      # 启动脚本 (支持双前端)
 │   ├── env.example                   # 环境变量模板
 │   └── .gitignore                    # Git忽略文件
 ├── 📚 文档
