@@ -20,6 +20,7 @@ except ImportError:
 from crawl_raw_info import crawl_arxiv_papers
 from paper_analysis_processor import analyze_paper, parse_markdown_table, generate_analysis_markdown, generate_analysis_fail_markdown
 from doubao_client import DoubaoClient
+from auto_commit_github_api import GitHubAutoCommit
 
 app = Flask(__name__)
 CORS(app)  # 允许跨域请求
@@ -352,6 +353,43 @@ def analyze_papers():
     except Exception as e:
         return jsonify({'error': f'启动分析失败: {str(e)}'}), 500
 
+def auto_commit_analysis_file(output_file, task_id):
+    """
+    自动提交分析结果文件到 GitHub
+    
+    Args:
+        output_file: 生成的输出文件路径
+        task_id: 任务ID，用于日志标识
+    
+    Returns:
+        bool: 提交是否成功
+    """
+    try:
+        print(f"🔄 开始自动提交文件到 GitHub: {output_file}")
+        
+        # 初始化 GitHub 提交工具
+        committer = GitHubAutoCommit()
+        
+        # 提取文件名 
+        file_name = os.path.basename(output_file)
+        
+        # 提交文件
+        result = committer.commit_file_by_name(file_name)
+        
+        if result["success"]:
+            print(f"✅ 成功提交文件到 GitHub: {file_name}")
+            print(f"🔗 提交链接: {result.get('commit_url', 'N/A')}")
+            return True
+        else:
+            error_msg = result.get('error', '未知错误')
+            print(f"❌ GitHub 提交失败: {error_msg}")
+            return False
+    
+    except Exception as e:
+        print(f"⚠️  GitHub 自动提交异常 (任务: {task_id}): {e}")
+        print("📝 提示: 检查 .env 文件中的 GITHUB_TOKEN 和 GITHUB_REPO 配置")
+        return False
+
 def run_analysis_task(task_id, input_file, selected_date, selected_category, test_count):
     """后台运行分析任务"""
     print(f"🚀 开始分析任务: {task_id}, 文件: {input_file}, 测试数量: {test_count}")
@@ -397,6 +435,9 @@ def run_analysis_task(task_id, input_file, selected_date, selected_category, tes
         # 添加论文分析统计
         success_count = 0
         error_count = 0
+        
+        # 初始化 GitHub 提交状态
+        commit_success = False
         
         for i, paper in enumerate(papers):
             try:
@@ -470,6 +511,14 @@ def run_analysis_task(task_id, input_file, selected_date, selected_category, tes
             output_file = os.path.join('log', output_name)
             generate_analysis_fail_markdown(papers, output_file, error_count)
             
+            # 自动提交失败分析文件到 GitHub
+            print(f"📤 准备提交失败分析文件到 GitHub...")
+            commit_success = auto_commit_analysis_file(output_file, task_id)
+            if commit_success:
+                print(f"✅ 失败分析文件已成功提交到 GitHub")
+            else:
+                print(f"⚠️  失败分析文件提交到 GitHub 失败，但不影响本地分析结果")
+            
             print(f"❌ 分析任务失败！总计: {len(papers)} 篇，成功: {success_count} 篇，错误: {error_count} 篇")
         else:
             # 如果有成功的分析，生成正常文件
@@ -493,6 +542,14 @@ def run_analysis_task(task_id, input_file, selected_date, selected_category, tes
             output_file = os.path.join('log', output_name)
             generate_analysis_markdown(papers, output_file)
             
+            # 自动提交成功分析文件到 GitHub
+            print(f"📤 准备提交分析结果文件到 GitHub...")
+            commit_success = auto_commit_analysis_file(output_file, task_id)
+            if commit_success:
+                print(f"✅ 分析结果文件已成功提交到 GitHub")
+            else:
+                print(f"⚠️  分析结果文件提交到 GitHub 失败，但不影响本地分析结果")
+            
             print(f"🎊 分析任务完成！总计: {len(papers)} 篇，成功: {success_count} 篇，错误: {error_count} 篇")
         
         with analysis_lock:
@@ -501,6 +558,8 @@ def run_analysis_task(task_id, input_file, selected_date, selected_category, tes
             analysis_progress[task_id]['completed_range_type'] = completed_range_type
             analysis_progress[task_id]['final_success_count'] = success_count
             analysis_progress[task_id]['final_error_count'] = error_count
+            # 记录 GitHub 提交状态
+            analysis_progress[task_id]['github_commit_success'] = commit_success
         
     except Exception as e:
         error_msg = str(e)
