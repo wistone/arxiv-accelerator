@@ -183,8 +183,8 @@ def get_author_affiliations(arxiv_url: str) -> List[str]:
 if __name__ == "__main__":
     # 简单的测试用例
     if len(sys.argv) < 2:
-        print("使用方法: python parse_author_org_v4.py <arxiv_url>")
-        print("例如: python parse_author_org_v4.py http://arxiv.org/abs/2507.23785v1")
+        print("使用方法: python parse_author_affli_from_doubao.py <arxiv_url>")
+        print("例如: python parse_author_affli_from_doubao.py \"http://arxiv.org/abs/2507.23785v1\"")
         exit(1)
     
     arxiv_url = sys.argv[1]

@@ -32,7 +32,7 @@ from typing import List, Dict
 # 添加父目录到路径，以便导入主脚本
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import parse_author_org_v4
+import parse_author_affli_from_doubao
 
 
 def extract_paper_links_from_file(file_path: str) -> List[str]:
@@ -61,10 +61,10 @@ def process_single_paper(arxiv_url: str) -> Dict:
     """
     处理单篇论文
     """
-    arxiv_id = parse_author_org_v4.extract_arxiv_id_from_url(arxiv_url)
+    arxiv_id = parse_author_affli_from_doubao.extract_arxiv_id_from_url(arxiv_url)
     
     try:
-        affiliations = parse_author_org_v4.get_author_affiliations(arxiv_url)
+        affiliations = parse_author_affli_from_doubao.get_author_affiliations(arxiv_url)
         return {
             'arxiv_id': arxiv_id,
             'arxiv_url': arxiv_url,
