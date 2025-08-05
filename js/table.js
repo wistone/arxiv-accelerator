@@ -294,6 +294,11 @@ function displaySortedResults(articles) {
                 <div class="title-link">
                     <a href="${article.link}" target="_blank">查看链接</a>
                 </div>
+                <div class="affiliations-link">
+                    <button class="affiliations-btn" onclick="getAuthorAffiliations('${article.link}', '${article.title.replace(/'/g, '\\\'')}')" title="使用豆包API智能解析作者机构信息">
+                        🏢 查看作者机构
+                    </button>
+                </div>
             </td>
             <td class="authors-cell">
                 <div class="authors-content" id="authors-${article.number}">
