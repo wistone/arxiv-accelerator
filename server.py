@@ -453,6 +453,38 @@ def run_analysis_task(task_id, input_file, selected_date, selected_category, tes
                 analysis_result = analyze_paper(client, system_prompt, paper['title'], paper['abstract'])
                 paper['analysis_result'] = analysis_result
                 
+                # 检查是否通过筛选，如果通过则获取作者机构信息
+                paper['author_affiliation'] = ""  # 默认为空
+                
+                try:
+                    # 解析分析结果JSON
+                    import json
+                    analysis_json = json.loads(analysis_result)
+                    
+                    # 如果通过筛选，调用豆包API获取机构信息
+                    if analysis_json.get('pass_filter', False):
+                        print(f"🏢 论文通过筛选，正在获取作者机构信息...")
+                        from parse_author_affli_from_doubao import get_author_affiliations
+                        
+                        try:
+                            affiliations = get_author_affiliations(paper['link'])
+                            if affiliations:
+                                # 将机构列表转换为JSON字符串存储
+                                paper['author_affiliation'] = json.dumps(affiliations, ensure_ascii=False)
+                                print(f"✅ 成功获取 {len(affiliations)} 个作者机构")
+                            else:
+                                paper['author_affiliation'] = "[]"  # 空的JSON数组
+                                print("⚠️ 未找到作者机构信息")
+                        except Exception as affil_error:
+                            print(f"⚠️ 获取作者机构失败: {affil_error}")
+                            paper['author_affiliation'] = ""  # 出错时保持为空
+                    else:
+                        print("⏭️ 论文未通过筛选，跳过机构信息获取")
+                        
+                except (json.JSONDecodeError, Exception) as e:
+                    print(f"⚠️ 解析分析结果失败，跳过机构信息获取: {e}")
+                    paper['author_affiliation'] = ""
+                
                 elapsed_time = time.time() - start_time
                 
                 # 检查分析结果是否包含错误
@@ -792,13 +824,19 @@ def parse_analysis_markdown_file(filepath):
                     abstract = parts[4].replace('\\|', '|')
                     link = parts[5].replace('\\|', '|')
                     
+                    # 处理新的 author_affiliation 字段（第7列）
+                    author_affiliation = ""
+                    if len(parts) >= 7:
+                        author_affiliation = parts[6].replace('\\|', '|')
+                    
                     articles.append({
                         'number': number,
                         'analysis_result': analysis_result,
                         'title': title,
                         'authors': authors,
                         'abstract': abstract,
-                        'link': link
+                        'link': link,
+                        'author_affiliation': author_affiliation
                     })
                 except (ValueError, IndexError):
                     continue

@@ -15,9 +15,14 @@ function displayAnalysisResults(articles) {
     const tableBody = document.getElementById('tableBody');
     tableBody.innerHTML = '';
 
-    // 更新表头为分析结果格式，添加排序功能
+    // 检查是否有作者机构信息字段
+    const hasAffiliationData = articles.some(article => 
+        article.author_affiliation !== undefined && article.author_affiliation !== null && article.author_affiliation !== ""
+    );
+    
+    // 更新表头为分析结果格式，根据数据决定是否显示机构列
     const tableHead = document.querySelector('#arxivTable thead tr');
-    tableHead.innerHTML = `
+    let headerHTML = `
         <th class="number-cell">序号</th>
         <th class="filter-cell">筛选结果</th>
         <th class="score-cell sortable" onclick="sortTable('raw_score')">
@@ -29,6 +34,13 @@ function displayAnalysisResults(articles) {
         <th class="authors-cell">作者</th>
         <th class="abstract-cell">摘要</th>
     `;
+    
+    // 如果有机构数据，添加机构列
+    if (hasAffiliationData) {
+        headerHTML += `<th class="affiliations-cell">作者机构</th>`;
+    }
+    
+    tableHead.innerHTML = headerHTML;
 
     // 重置排序状态
     window.AppState.sortColumn = '';
@@ -198,6 +210,11 @@ function displaySortedResults(articles) {
     const tableBody = document.getElementById('tableBody');
     tableBody.innerHTML = '';
 
+    // 检查是否有机构数据
+    const hasAffiliationData = articles.some(article => 
+        article.author_affiliation !== undefined && article.author_affiliation !== null && article.author_affiliation !== ""
+    );
+
     articles.forEach((article, index) => {
         const row = document.createElement('tr');
         
@@ -274,7 +291,8 @@ function displaySortedResults(articles) {
             row.classList.add('passed-filter');
         }
 
-        row.innerHTML = `
+        // 构建基础行HTML
+        let rowHTML = `
             <td class="number-cell">${index + 1}</td>
             <td class="filter-cell">
                 <span class="filter-result ${passFilter ? 'passed' : 'rejected'}">
@@ -315,6 +333,13 @@ function displaySortedResults(articles) {
                 </span>
             </td>
         `;
+        
+        // 如果有机构数据，添加机构列
+        if (hasAffiliationData) {
+            rowHTML += renderAffiliationsCell(article.author_affiliation);
+        }
+        
+        row.innerHTML = rowHTML;
         tableBody.appendChild(row);
     });
 }
@@ -345,5 +370,60 @@ function toggleAuthors(elementId) {
     const authorsContent = document.getElementById(elementId);
     if (authorsContent) {
         authorsContent.classList.toggle('expanded');
+    }
+}
+
+function renderAffiliationsCell(affiliationData) {
+    /**
+     * 渲染机构信息单元格
+     */
+    if (!affiliationData || affiliationData === "") {
+        return `<td class="affiliations-cell">
+            <div class="affiliations-empty">暂无机构信息</div>
+        </td>`;
+    }
+    
+    try {
+        // 尝试解析JSON格式的机构数据
+        let affiliations = [];
+        if (typeof affiliationData === 'string') {
+            if (affiliationData.startsWith('[') && affiliationData.endsWith(']')) {
+                affiliations = JSON.parse(affiliationData);
+            } else {
+                // 如果不是JSON格式，将字符串按行分割
+                affiliations = affiliationData.split('\n').filter(line => line.trim());
+            }
+        } else if (Array.isArray(affiliationData)) {
+            affiliations = affiliationData;
+        }
+        
+        if (affiliations.length === 0) {
+            return `<td class="affiliations-cell">
+                <div class="affiliations-empty">未找到机构信息</div>
+            </td>`;
+        }
+        
+        // 构建机构列表HTML
+        const affiliationsHTML = affiliations.map((affiliation, index) => 
+            `<div class="affiliation-item" title="${affiliation}">
+                <span class="affiliation-number">${index + 1}.</span>
+                <span class="affiliation-text">${affiliation}</span>
+            </div>`
+        ).join('');
+        
+        return `<td class="affiliations-cell">
+            <div class="affiliations-content">
+                <div class="affiliations-count">${affiliations.length} 个机构</div>
+                <div class="affiliations-list">
+                    ${affiliationsHTML}
+                </div>
+            </div>
+        </td>`;
+        
+    } catch (error) {
+        console.error('解析机构信息失败:', error);
+        return `<td class="affiliations-cell">
+            <div class="affiliations-error">机构信息格式错误</div>
+        </td>`;
     }
 }
