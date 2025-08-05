@@ -20,6 +20,7 @@ except ImportError:
 from crawl_raw_info import crawl_arxiv_papers
 from paper_analysis_processor import analyze_paper, parse_markdown_table, generate_analysis_markdown, generate_analysis_fail_markdown
 from doubao_client import DoubaoClient
+from auto_commit_github_api import GitHubAutoCommit
 
 app = Flask(__name__)
 CORS(app)  # 允许跨域请求
@@ -352,6 +353,43 @@ def analyze_papers():
     except Exception as e:
         return jsonify({'error': f'启动分析失败: {str(e)}'}), 500
 
+def auto_commit_analysis_file(output_file, task_id):
+    """
+    自动提交分析结果文件到 GitHub
+    
+    Args:
+        output_file: 生成的输出文件路径
+        task_id: 任务ID，用于日志标识
+    
+    Returns:
+        bool: 提交是否成功
+    """
+    try:
+        print(f"🔄 开始自动提交文件到 GitHub: {output_file}")
+        
+        # 初始化 GitHub 提交工具
+        committer = GitHubAutoCommit()
+        
+        # 提取文件名 
+        file_name = os.path.basename(output_file)
+        
+        # 提交文件
+        result = committer.commit_file_by_name(file_name)
+        
+        if result["success"]:
+            print(f"✅ 成功提交文件到 GitHub: {file_name}")
+            print(f"🔗 提交链接: {result.get('commit_url', 'N/A')}")
+            return True
+        else:
+            error_msg = result.get('error', '未知错误')
+            print(f"❌ GitHub 提交失败: {error_msg}")
+            return False
+    
+    except Exception as e:
+        print(f"⚠️  GitHub 自动提交异常 (任务: {task_id}): {e}")
+        print("📝 提示: 检查 .env 文件中的 GITHUB_TOKEN 和 GITHUB_REPO 配置")
+        return False
+
 def run_analysis_task(task_id, input_file, selected_date, selected_category, test_count):
     """后台运行分析任务"""
     print(f"🚀 开始分析任务: {task_id}, 文件: {input_file}, 测试数量: {test_count}")
@@ -397,6 +435,9 @@ def run_analysis_task(task_id, input_file, selected_date, selected_category, tes
         # 添加论文分析统计
         success_count = 0
         error_count = 0
+        
+        # 初始化 GitHub 提交状态
+        commit_success = False
         
         for i, paper in enumerate(papers):
             try:
@@ -470,6 +511,14 @@ def run_analysis_task(task_id, input_file, selected_date, selected_category, tes
             output_file = os.path.join('log', output_name)
             generate_analysis_fail_markdown(papers, output_file, error_count)
             
+            # 自动提交失败分析文件到 GitHub
+            print(f"📤 准备提交失败分析文件到 GitHub...")
+            commit_success = auto_commit_analysis_file(output_file, task_id)
+            if commit_success:
+                print(f"✅ 失败分析文件已成功提交到 GitHub")
+            else:
+                print(f"⚠️  失败分析文件提交到 GitHub 失败，但不影响本地分析结果")
+            
             print(f"❌ 分析任务失败！总计: {len(papers)} 篇，成功: {success_count} 篇，错误: {error_count} 篇")
         else:
             # 如果有成功的分析，生成正常文件
@@ -493,6 +542,14 @@ def run_analysis_task(task_id, input_file, selected_date, selected_category, tes
             output_file = os.path.join('log', output_name)
             generate_analysis_markdown(papers, output_file)
             
+            # 自动提交成功分析文件到 GitHub
+            print(f"📤 准备提交分析结果文件到 GitHub...")
+            commit_success = auto_commit_analysis_file(output_file, task_id)
+            if commit_success:
+                print(f"✅ 分析结果文件已成功提交到 GitHub")
+            else:
+                print(f"⚠️  分析结果文件提交到 GitHub 失败，但不影响本地分析结果")
+            
             print(f"🎊 分析任务完成！总计: {len(papers)} 篇，成功: {success_count} 篇，错误: {error_count} 篇")
         
         with analysis_lock:
@@ -501,6 +558,8 @@ def run_analysis_task(task_id, input_file, selected_date, selected_category, tes
             analysis_progress[task_id]['completed_range_type'] = completed_range_type
             analysis_progress[task_id]['final_success_count'] = success_count
             analysis_progress[task_id]['final_error_count'] = error_count
+            # 记录 GitHub 提交状态
+            analysis_progress[task_id]['github_commit_success'] = commit_success
         
     except Exception as e:
         error_msg = str(e)
@@ -777,105 +836,7 @@ def get_available_dates():
     except Exception as e:
         return jsonify({'error': f'获取日期列表失败: {str(e)}'}), 500
 
-@app.route('/internal/backup', methods=['POST'])
-def trigger_backup():
-    """
-    内部备份API - 通过GitHub Actions触发
-    返回需要备份的文件列表和内容，由GitHub Actions执行Git操作
-    """
-    # 获取备份密钥
-    SECRET = os.getenv("BACKUP_SECRET", "change-me-please")
-    
-    # 验证签名
-    sig = request.headers.get("X-Backup-Sign")
-    if not sig:
-        print("❌ 备份请求缺少签名")
-        abort(403)
-    
-    # 计算期望的签名
-    expected_sig = hmac.new(SECRET.encode(), b"run", hashlib.sha256).hexdigest()
-    
-    # 安全比较签名
-    if not hmac.compare_digest(sig, expected_sig):
-        print(f"❌ 备份请求签名验证失败")
-        abort(403)
-    
-    print("🔐 备份请求签名验证通过")
-    
-    try:
-        print("🚀 开始检查需要备份的文件...")
-        
-        # 检查log目录
-        log_dir = "log"
-        if not os.path.exists(log_dir):
-            return {
-                "ok": True, 
-                "message": "log目录不存在，无需备份",
-                "files": [],
-                "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            }
-        
-        # 查找所有分析文件
-        analysis_files = []
-        for filename in os.listdir(log_dir):
-            if "-analysis" in filename and filename.endswith(".md"):
-                filepath = os.path.join(log_dir, filename)
-                if os.path.isfile(filepath):
-                    analysis_files.append(filename)
-        
-        if not analysis_files:
-            return {
-                "ok": True, 
-                "message": "没有找到分析文件，无需备份",
-                "files": [],
-                "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            }
-        
-        print(f"📄 发现 {len(analysis_files)} 个分析文件")
-        
-        # 读取文件内容
-        file_contents = {}
-        for filename in analysis_files:
-            filepath = os.path.join(log_dir, filename)
-            try:
-                with open(filepath, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                file_contents[filename] = {
-                    "path": f"log/{filename}",
-                    "content": content,
-                    "size": len(content)
-                }
-                print(f"   ✅ 读取文件: {filename} ({len(content)} 字符)")
-            except Exception as e:
-                print(f"   ❌ 读取文件失败: {filename} - {e}")
-                continue
-        
-        if not file_contents:
-            return {
-                "ok": False, 
-                "error": "无法读取任何分析文件",
-                "files": []
-            }, 500
-        
-        print("✅ 文件内容读取完成")
-        return {
-            "ok": True, 
-            "message": f"成功读取 {len(file_contents)} 个分析文件",
-            "files": file_contents,
-            "file_count": len(file_contents),
-            "total_size": sum(f["size"] for f in file_contents.values()),
-            "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        }
-            
-    except Exception as e:
-        error_msg = f"备份检查异常: {str(e)}"
-        print(f"❌ {error_msg}")
-        import traceback
-        traceback.print_exc()
-        return {
-            "ok": False, 
-            "error": error_msg
-        }, 500
+
 
 if __name__ == '__main__':
     print("启动Arxiv文章初筛小助手服务器...")

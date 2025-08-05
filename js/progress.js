@@ -120,13 +120,13 @@ function startSSEConnection(selectedDate, selectedCategory, testCount) {
     });
 }
 
-function startProgressBackupCheck(selectedDate, selectedCategory) {
+function startProgressFallbackCheck(selectedDate, selectedCategory) {
     // 清理之前的定时器
     if (window.AppState.progressCheckInterval) {
         clearInterval(window.AppState.progressCheckInterval);
     }
 
-    console.log('🔄 启动备用进度检查机制...');
+    console.log('🔄 启动故障转移进度检查机制...');
     
     // 每5秒检查一次进度（备用机制）
     window.AppState.progressCheckInterval = setInterval(async () => {
@@ -134,11 +134,11 @@ function startProgressBackupCheck(selectedDate, selectedCategory) {
             // 检查是否长时间没有收到更新（超过30秒）
             const timeSinceLastUpdate = Date.now() - window.AppState.lastProgressUpdate;
             if (timeSinceLastUpdate > 30000) {
-                console.log('⚠️  长时间无进度更新，使用备用检查...');
+                console.log('⚠️  长时间无进度更新，使用故障转移检查...');
                 await checkAnalysisStatus(selectedDate, selectedCategory);
             }
         } catch (error) {
-            console.error('备用进度检查失败:', error);
+            console.error('故障转移进度检查失败:', error);
         }
     }, 5000);
 }
@@ -158,7 +158,7 @@ async function checkAnalysisStatus(selectedDate, selectedCategory) {
 
         if (response.ok) {
             const data = await response.json();
-            console.log('✅ 备用检查发现分析已完成!');
+            console.log('✅ 故障转移检查发现分析已完成!');
             
             // 分析已完成，直接跳转到结果页面
             const completionData = {
@@ -170,7 +170,7 @@ async function checkAnalysisStatus(selectedDate, selectedCategory) {
             stopAllConnections();
         } else {
             // 分析还在进行中
-            console.log('📊 备用检查：分析仍在进行中...');
+            console.log('📊 故障转移检查：分析仍在进行中...');
             
             // 更新显示时间信息
             const elapsed = Math.floor((Date.now() - window.AppState.analysisStartTime) / 1000);
@@ -184,7 +184,7 @@ async function checkAnalysisStatus(selectedDate, selectedCategory) {
             }
         }
     } catch (error) {
-        console.error('备用状态检查失败:', error);
+        console.error('故障转移状态检查失败:', error);
     }
 }
 
@@ -196,9 +196,9 @@ function stopAllConnections() {
         window.AppState.currentEventSource = null;
     }
     
-    // 停止备用检查
+    // 停止故障转移检查
     if (window.AppState.progressCheckInterval) {
-        console.log('🔄 关闭备用检查');
+        console.log('🔄 关闭故障转移检查');
         clearInterval(window.AppState.progressCheckInterval);
         window.AppState.progressCheckInterval = null;
     }

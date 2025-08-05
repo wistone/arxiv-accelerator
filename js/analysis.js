@@ -193,9 +193,9 @@ async function startNewAnalysis(selectedDate, selectedCategory, testCount) {
             throw new Error('分析请求失败');
         }
 
-        // 开始SSE连接和备用检查机制
+        // 开始SSE连接和故障转移检查机制
         startSSEConnection(selectedDate, selectedCategory, testCount);
-        startProgressBackupCheck(selectedDate, selectedCategory);
+        startProgressFallbackCheck(selectedDate, selectedCategory);
 
     } catch (error) {
         showError('分析启动失败: ' + error.message);
