@@ -114,6 +114,13 @@ def parse_markdown_table(file_path):
                     'abstract': columns[4].strip(),
                     'link': columns[5].strip()
                 }
+                
+                # 支持新的 7 列格式（包含 author_affiliation）
+                if len(columns) >= 7:
+                    paper['author_affiliation'] = columns[6].strip()
+                else:
+                    paper['author_affiliation'] = ""  # 旧格式默认为空
+                
                 papers.append(paper)
         
         return papers
@@ -127,6 +134,9 @@ def escape_markdown_content(content):
     if not content:
         return ""
     
+    # 确保内容是字符串
+    content = str(content)
+    
     # 转义管道符号
     content = content.replace('|', '\\|')
     # 转义换行符
@@ -137,9 +147,9 @@ def generate_analysis_markdown(papers, output_file):
     """生成分析结果的markdown文件"""
     try:
         with open(output_file, 'w', encoding='utf-8') as f:
-            # 写入表头
-            f.write("|   No. |   analysis_result | title | authors | abstract | link |\n")
-            f.write("|------:|:------------------|:------|:--------|:---------|:-----|\n")
+            # 写入表头 - 新增 author_affiliation 列
+            f.write("|   No. |   analysis_result | title | authors | abstract | link | author_affiliation |\n")
+            f.write("|------:|:------------------|:------|:--------|:---------|:-----|:------------------|\n")
             
             # 写入数据行
             for paper in papers:
@@ -150,7 +160,11 @@ def generate_analysis_markdown(papers, output_file):
                 abstract = escape_markdown_content(paper['abstract'])
                 link = escape_markdown_content(paper['link'])
                 
-                f.write(f"|{no:>6} | {analysis_result} | {title} | {authors} | {abstract} | {link} |\n")
+                # 处理 author_affiliation 字段
+                author_affiliation = paper.get('author_affiliation', '')
+                author_affiliation = escape_markdown_content(author_affiliation)
+                
+                f.write(f"|{no:>6} | {analysis_result} | {title} | {authors} | {abstract} | {link} | {author_affiliation} |\n")
         
         print(f"✅ 分析结果已保存到: {output_file}")
         

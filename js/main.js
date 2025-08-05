@@ -59,3 +59,4 @@ document.addEventListener('DOMContentLoaded', async function() {
         console.log('📋 未检测到URL参数，使用默认状态');
     }
 });
+
