@@ -875,44 +875,7 @@ def get_available_dates():
         return jsonify({'error': f'获取日期列表失败: {str(e)}'}), 500
 
 
-@app.route('/api/get_author_affiliations', methods=['POST'])
-def get_author_affiliations():
-    """
-    获取论文作者机构信息
-    """
-    try:
-        data = request.get_json()
-        arxiv_url = data.get('arxiv_url')
-        
-        if not arxiv_url:
-            return jsonify({
-                'success': False,
-                'error': '缺少ArXiv URL参数'
-            }), 400
-        
-        # 调用parse_author_affli_from_doubao.py模块
-        try:
-            from parse_author_affli_from_doubao import get_author_affiliations
-            affiliations = get_author_affiliations(arxiv_url)
-            
-            return jsonify({
-                'success': True,
-                'arxiv_url': arxiv_url,
-                'affiliations': affiliations,
-                'count': len(affiliations)
-            })
-            
-        except Exception as e:
-            return jsonify({
-                'success': False,
-                'error': f'解析作者机构信息失败: {str(e)}'
-            }), 500
-            
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': f'请求处理失败: {str(e)}'
-        }), 500
+
 
 
 if __name__ == '__main__':

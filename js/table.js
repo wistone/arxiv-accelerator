@@ -32,13 +32,14 @@ function displayAnalysisResults(articles) {
         <th class="details-cell">详细分析</th>
         <th>标题</th>
         <th class="authors-cell">作者</th>
-        <th class="abstract-cell">摘要</th>
     `;
     
-    // 如果有机构数据，添加机构列
+    // 如果有机构数据，在作者后添加机构列
     if (hasAffiliationData) {
         headerHTML += `<th class="affiliations-cell">作者机构</th>`;
     }
+    
+    headerHTML += `<th class="abstract-cell">摘要</th>`;
     
     tableHead.innerHTML = headerHTML;
 
@@ -291,7 +292,7 @@ function displaySortedResults(articles) {
             row.classList.add('passed-filter');
         }
 
-        // 构建基础行HTML
+        // 构建行HTML - 分步骤构建以便插入机构列
         let rowHTML = `
             <td class="number-cell">${index + 1}</td>
             <td class="filter-cell">
@@ -312,11 +313,6 @@ function displaySortedResults(articles) {
                 <div class="title-link">
                     <a href="${article.link}" target="_blank">查看链接</a>
                 </div>
-                <div class="affiliations-link">
-                    <button class="affiliations-btn" onclick="getAuthorAffiliations('${article.link}', '${article.title.replace(/'/g, '\\\'')}')" title="使用豆包API智能解析作者机构信息">
-                        🏢 查看作者机构
-                    </button>
-                </div>
             </td>
             <td class="authors-cell">
                 <div class="authors-content" id="authors-${article.number}">
@@ -324,6 +320,15 @@ function displaySortedResults(articles) {
                 </div>
                 ${article.authors.length > 100 ? `<span class="authors-toggle" onclick="toggleAuthors('authors-${article.number}')">展开/收起</span>` : ''}
             </td>
+        `;
+        
+        // 如果有机构数据，在作者后添加机构列
+        if (hasAffiliationData) {
+            rowHTML += renderAffiliationsCell(article.author_affiliation);
+        }
+        
+        // 添加摘要列（始终最后）
+        rowHTML += `
             <td class="abstract-cell">
                 <div class="abstract-content" id="abstract-${article.number}">
                     ${article.abstract}
@@ -333,11 +338,6 @@ function displaySortedResults(articles) {
                 </span>
             </td>
         `;
-        
-        // 如果有机构数据，添加机构列
-        if (hasAffiliationData) {
-            rowHTML += renderAffiliationsCell(article.author_affiliation);
-        }
         
         row.innerHTML = rowHTML;
         tableBody.appendChild(row);
