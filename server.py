@@ -471,12 +471,14 @@ def run_analysis_task(task_id, input_file, selected_date, selected_category, tes
                             if affiliations:
                                 # 将机构列表转换为JSON字符串存储
                                 paper['author_affiliation'] = json.dumps(affiliations, ensure_ascii=False)
-                                print(f"✅ 成功获取 {len(affiliations)} 个作者机构")
+                                print(f"✅ 成功获取 {len(affiliations)} 个作者机构: {affiliations}")
                             else:
                                 paper['author_affiliation'] = "[]"  # 空的JSON数组
                                 print("⚠️ 未找到作者机构信息")
                         except Exception as affil_error:
+                            import traceback
                             print(f"⚠️ 获取作者机构失败: {affil_error}")
+                            print(f"🔍 详细错误信息: {traceback.format_exc()}")
                             paper['author_affiliation'] = ""  # 出错时保持为空
                     else:
                         print("⏭️ 论文未通过筛选，跳过机构信息获取")
