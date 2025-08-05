@@ -116,13 +116,22 @@ git push origin main
 #### 3. 配置环境变量
 在Render服务设置中添加：
 ```
+# 必需配置
 DOUBAO_API_KEY=your-doubao-api-key
 DOUBAO_MODEL=your-doubao-model-endpoint
-BACKUP_SECRET=your-backup-secret-key
+
+# GitHub API 自动提交配置
+GITHUB_TOKEN=your-github-personal-access-token
+GITHUB_REPO=your-username/arxiv-accelerator
+GITHUB_BRANCH=main
 ```
 
-#### 4. 配置自动备份
-参考 [Wiki文档](./wiki/README.md) 中的部署配置说明。
+#### 4. 获取 GitHub Token
+1. 访问 GitHub → Settings → Developer settings → Personal access tokens
+2. 创建新 token，权限设置：
+   - **Repository access**: Only select repositories → `arxiv-accelerator`
+   - **Permissions**: Contents (Read & Write), Metadata (Read)
+3. 复制 token 到 Render 环境变量中
 
 ### 方案二：本地部署
 
@@ -142,9 +151,15 @@ cp env.example .env
 python server.py
 ```
 
-## 📚 详细文档
+## 🚀 新功能特性
 
-- **[GitHub Actions自动备份](./wiki/GITHUB_ACTIONS_SETUP.md)** - 推荐的自动备份方案
+### GitHub API 自动提交
+- ✅ **即时提交** - 分析完成立即自动提交到 GitHub
+- ✅ **100% 可靠** - 不依赖外部服务，直接使用 GitHub API
+- ✅ **零配置** - 只需设置环境变量即可
+- ✅ **错误隔离** - 提交失败不影响分析任务正常运行
+
+详细部署指南请参考：`RENDER_DEPLOYMENT_GUIDE.md`
 
 ## 📁 项目结构
 
@@ -166,10 +181,13 @@ arxiv-accelerator/
 │   ├── requirements.txt               # Python依赖
 │   ├── start.sh                      # 启动脚本
 │   ├── env.example                   # 环境变量模板
+│   ├── auto_commit_github_api.py     # GitHub API 自动提交
 │   └── .gitignore                    # Git忽略文件
 ├── 📚 文档
-│   └── wiki/                         # 详细文档
-│       └── GITHUB_ACTIONS_SETUP.md   # GitHub Actions配置
+│   ├── GITHUB_API_USAGE.md           # GitHub API 使用说明
+│   ├── RENDER_DEPLOYMENT_GUIDE.md    # Render 部署指南
+│   └── wiki/                         # 其他文档
+│       └── MODULAR_REFACTOR_SUMMARY.md # 模块化重构总结
 ├── 📋 提示词
 │   └── prompt/
 │       └── system_prompt.md          # AI分析提示词
