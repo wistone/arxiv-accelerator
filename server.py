@@ -392,7 +392,15 @@ def auto_commit_analysis_file(output_file, task_id):
 
 def run_analysis_task(task_id, input_file, selected_date, selected_category, test_count):
     """后台运行分析任务"""
+    import sys
+    
+    # 强制刷新输出流，确保日志实时显示
+    sys.stdout.flush()
+    sys.stderr.flush()
+    
     print(f"🚀 开始分析任务: {task_id}, 文件: {input_file}, 测试数量: {test_count}")
+    print(f"🏷️  Instance 标识: {os.getenv('RENDER_INSTANCE_ID', 'local')}")
+    print(f"⏰ 任务开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     try:
         with analysis_lock:
             analysis_progress[task_id] = {
@@ -425,9 +433,9 @@ def run_analysis_task(task_id, input_file, selected_date, selected_category, tes
             analysis_progress[task_id]['status'] = 'processing'
         
         # 创建doubao客户端
-        print(f"📡 初始化豆包客户端...")
+        print(f"📡 初始化豆包客户端... 🔍 Task ID: {task_id} - Instance 开始处理")
         client = DoubaoClient()
-        print(f"✅ 豆包客户端初始化成功")
+        print(f"✅ 豆包客户端初始化成功 - 准备开始AI分析")
         
         # 处理每篇论文
         print(f"📄 开始处理 {len(papers)} 篇论文")
@@ -448,6 +456,7 @@ def run_analysis_task(task_id, input_file, selected_date, selected_category, tes
                 
                 # 调用论文分析
                 print(f"🔍 分析第 {i+1}/{len(papers)} 篇论文: {paper['title'][:50]}...")
+                sys.stdout.flush()  # 立即刷新输出
                 start_time = time.time()
                 
                 analysis_result = analyze_paper(client, system_prompt, paper['title'], paper['abstract'])
@@ -881,6 +890,22 @@ def get_available_dates():
 
 
 if __name__ == '__main__':
+    import sys
+    
+    # 强制刷新标准输出，确保在Render中能看到日志
+    sys.stdout.reconfigure(line_buffering=True)
+    sys.stderr.reconfigure(line_buffering=True)
+    
     print("启动Arxiv文章初筛小助手服务器...")
     print("访问地址: http://localhost:8080")
-    app.run(debug=True, host='0.0.0.0', port=8080) 
+    print(f"Python版本: {sys.version}")
+    print(f"当前工作目录: {os.getcwd()}")
+    
+    # 在生产环境中禁用debug模式，但保持日志输出
+    is_production = os.getenv('RENDER') is not None
+    if is_production:
+        print("🌐 检测到Render生产环境，优化日志配置")
+        app.run(debug=False, host='0.0.0.0', port=8080)
+    else:
+        print("🖥️  本地开发环境")
+        app.run(debug=True, host='0.0.0.0', port=8080) 

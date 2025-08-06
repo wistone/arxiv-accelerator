@@ -34,7 +34,7 @@ def analyze_paper(client, system_prompt, title, abstract, max_retries=3):
             response = client.chat(
                 message=user_prompt,
                 system_prompt=system_prompt,
-                verbose=False  # 简化输出
+                verbose=True  # 启用详细输出以便在Render中查看模型调用日志
             )
             
             elapsed_time = time.time() - start_time
