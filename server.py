@@ -624,6 +624,7 @@ def analysis_progress_stream():
     task_id = f"{date}-{category}"
     
     def generate(task_id):
+        import sys
         last_current = -1
         last_status = None
         loop_count = 0
@@ -641,9 +642,9 @@ def analysis_progress_stream():
             status = progress.get('status', 'unknown')
             current = progress.get('current', 0)
             
-            # 减少调试信息的频率，只在状态或进度变化时打印
+            # 减少调试信息的频率，只在状态或进度变化时记录到stderr
             if status != last_status or current != last_current:
-                print(f"SSE Debug - task_id: {task_id}, status: {status}, current: {current}, loop: {loop_count}")
+                print(f"SSE Debug - task_id: {task_id}, status: {status}, current: {current}, loop: {loop_count}", file=sys.stderr)
             
             # 只在进度有变化时发送数据，或者是特殊状态
             should_send = (
@@ -661,7 +662,7 @@ def analysis_progress_stream():
                     'analysis_result': progress.get('analysis_result')
                 }
                 
-                print(f"SSE Sending data - current: {current}, status: {status}, has_result: {bool(data['analysis_result'])}")
+                print(f"SSE Sending data - current: {current}, status: {status}, has_result: {bool(data['analysis_result'])}", file=sys.stderr)
                 yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
                 last_current = current
                 last_status = status
@@ -673,14 +674,14 @@ def analysis_progress_stream():
                     'completed_range_type': progress.get('completed_range_type', 'full')
                 }
                 yield f"event: complete\ndata: {json.dumps(completion_data, ensure_ascii=False)}\n\n"
-                print(f"SSE stream completed for task_id: {task_id}")
+                print(f"SSE stream completed for task_id: {task_id}", file=sys.stderr)
                 break
             elif status == 'error':
                 error_data = {
                     'error': progress.get('error', '未知错误')
                 }
                 yield f"event: error\ndata: {json.dumps(error_data, ensure_ascii=False)}\n\n"
-                print(f"SSE stream error for task_id: {task_id}")
+                print(f"SSE stream error for task_id: {task_id}", file=sys.stderr)
                 break
             
             time.sleep(1)  # 每秒检查一次
@@ -689,7 +690,7 @@ def analysis_progress_stream():
         if loop_count >= max_loops:
             timeout_data = {'error': 'SSE stream timeout'}
             yield f"event: error\ndata: {json.dumps(timeout_data, ensure_ascii=False)}\n\n"
-            print(f"SSE stream timeout for task_id: {task_id}")
+            print(f"SSE stream timeout for task_id: {task_id}", file=sys.stderr)
     
     return Response(generate(task_id), mimetype='text/event-stream')
 

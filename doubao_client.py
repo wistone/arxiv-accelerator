@@ -91,8 +91,8 @@ class DoubaoClient:
             
             if verbose:
                 print("模型回复:")
-                print(reply)
-                print("-" * 50)
+                # print(reply)
+                # print("-" * 50)
                 print("调用成功！")
             
             return reply

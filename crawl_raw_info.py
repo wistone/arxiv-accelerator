@@ -63,7 +63,7 @@ def crawl_arxiv_papers(target_date_str, category="cs.CV"):
                 for i, entry in enumerate(feed.entries):
                     pub_date = dt.datetime(*entry.published_parsed[:6]).date()
                     pub_datetime = dt.datetime(*entry.published_parsed[:6])
-                    print(f"论文 {i+1}: 发布日期 {pub_date}, 发布时间 {pub_datetime}, 标题: {entry.title[:50]}...")
+                    # print(f"论文 {i+1}: 发布日期 {pub_date}, 发布时间 {pub_datetime}, 标题: {entry.title[:50]}...")
                 
                 print("\n现在检查所有论文...")
                 for i, entry in enumerate(feed.entries):
@@ -71,7 +71,7 @@ def crawl_arxiv_papers(target_date_str, category="cs.CV"):
                     
                     # 只保留目标日期的论文
                     if pub_date == target_date:
-                        print(f"找到目标日期的论文: {entry.title[:50]}...")
+                        # print(f"找到目标日期的论文: {entry.title[:50]}...")
                         
                         rows.append({
                             "No.":       len(rows) + 1,  # 从1开始的序号
