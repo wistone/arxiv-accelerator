@@ -14,7 +14,7 @@ body {
 }
 
 .container {
-    max-width: 1300px;
+    max-width: 1400px;
     margin: 0 auto;
     background: white;
     border-radius: 15px;
@@ -26,7 +26,7 @@ body {
 /* 分析模式下的容器宽度与默认一致 */
 
 /* 分析模式下的响应式设计 */
-@media (max-width: 1350px) {
+@media (max-width: 1450px) {
     .container.analysis-mode {
         max-width: 95%;
         margin: 0 2.5%;
@@ -48,18 +48,18 @@ body {
 
 /* 分析模式下的表格优化 */
 .container.analysis-mode .title-cell {
-    max-width: 280px; /* 在分析模式下减小标题列宽度 */
-    min-width: 220px;
+    max-width: 260px; /* 在分析模式下进一步减小标题列宽度 */
+    min-width: 200px;
 }
 
 .container.analysis-mode .authors-cell {
-    max-width: 180px; /* 在分析模式下略微减小作者列宽度 */
-    min-width: 140px;
+    max-width: 160px; /* 在分析模式下进一步减小作者列宽度 */
+    min-width: 120px;
 }
 
 .container.analysis-mode .abstract-cell {
-    max-width: 350px; /* 在分析模式下减小摘要列宽度 */
-    min-width: 280px;
+    max-width: 320px; /* 在分析模式下进一步减小摘要列宽度 */
+    min-width: 250px;
 }
 
 .header {
@@ -293,8 +293,8 @@ body {
 }
 
 .title-cell {
-    max-width: 320px;
-    min-width: 260px;
+    max-width: 280px; /* 略微缩窄标题列以腾出空间 */
+    min-width: 240px;
     font-weight: 600;
     color: #495057;
 }
@@ -326,8 +326,8 @@ body {
 }
 
 .authors-cell {
-    max-width: 200px; /* 缩窄作者列宽度 */
-    min-width: 150px;
+    max-width: 180px; /* 进一步缩窄作者列宽度以适应8列表格 */
+    min-width: 140px;
     color: #6c757d;
     font-size: 13px;
 }
@@ -357,8 +357,8 @@ body {
 }
 
 .abstract-cell {
-    max-width: 420px; /* 调整摘要列宽度以配合1300px容器 */
-    min-width: 320px;
+    max-width: 350px; /* 缩窄摘要列宽度以适应8列表格 */
+    min-width: 280px;
     position: relative;
 }
 
@@ -392,7 +392,8 @@ body {
     text-align: center;
     font-weight: 600;
     color: #495057;
-    min-width: 60px;
+    min-width: 50px;
+    max-width: 60px;
 }
 
 .id-cell {
@@ -559,7 +560,8 @@ body {
 /* 分析结果显示样式 */
 .filter-cell {
     text-align: center;
-    min-width: 100px;
+    min-width: 80px;
+    max-width: 100px;
 }
 
 .filter-result {
@@ -584,7 +586,8 @@ body {
 
 .score-cell {
     text-align: center;
-    min-width: 80px; /* 减小宽度，因为现在是单独的列 */
+    min-width: 60px; /* 进一步减小宽度 */
+    max-width: 80px;
     white-space: nowrap; /* 防止换行 */
 }
 
@@ -747,8 +750,8 @@ body {
 
 /* 新增：作者机构列样式 */
 .affiliations-cell {
-    min-width: 200px;
-    max-width: 300px;
+    min-width: 180px;
+    max-width: 250px;
     padding: 8px 12px;
     vertical-align: top;
 }
@@ -812,8 +815,8 @@ body {
 
 /* 分析模式下的机构列优化 */
 .container.analysis-mode .affiliations-cell {
-    min-width: 180px;
-    max-width: 250px;
+    min-width: 160px;
+    max-width: 220px;
 }
 
 /* 移动设备上的机构列优化 */
