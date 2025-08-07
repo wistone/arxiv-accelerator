@@ -80,6 +80,50 @@ body {
     opacity: 0.9;
 }
 
+/* 信息提示框样式 */
+.info-notice {
+    background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%);
+    border: 1px solid #bbdefb;
+    border-radius: 10px;
+    padding: 15px 20px;
+    margin: 20px 30px;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+.info-icon {
+    font-size: 1.2em;
+    margin-top: 2px;
+    flex-shrink: 0;
+}
+
+.info-content {
+    color: #37474f;
+    font-size: 0.95em;
+    line-height: 1.5;
+}
+
+.info-content strong {
+    color: #1976d2;
+    font-weight: 600;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .info-notice {
+        margin: 15px 20px;
+        padding: 12px 15px;
+        flex-direction: column;
+        gap: 8px;
+    }
+    
+    .info-content {
+        font-size: 0.9em;
+    }
+}
+
 .controls {
     padding: 30px;
     background: #f8f9fa;
