@@ -64,9 +64,9 @@ class DoubaoClient:
         try:
             if verbose:
                 print(f"正在调用doubao1.6模型...")
-                if system_prompt:
-                    print(f"系统提示词: {system_prompt[:100]}...")
-                print(f"用户问题: {message[:100]}...")
+                # if system_prompt:
+                #     print(f"系统提示词: {system_prompt[:100]}...")
+                print(f"用户问题: {message[:50]}...")
                 print("-" * 50)
             
             # 构建消息列表

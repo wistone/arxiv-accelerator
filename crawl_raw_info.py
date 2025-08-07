@@ -36,10 +36,26 @@ def crawl_arxiv_papers(target_date_str, category="cs.CV"):
                 print(f"当前UTC时间: {dt.datetime.now(dt.timezone.utc)}")
                 print(f"当前本地时间: {dt.datetime.now()}")
                 
+                # 显示不同时区的时间，便于调试
+                utc_now = dt.datetime.now(dt.timezone.utc)
+                singapore_time = utc_now.astimezone(dt.timezone(dt.timedelta(hours=8)))
+                us_eastern_time = utc_now.astimezone(dt.timezone(dt.timedelta(hours=-4)))  # EDT
+                print(f"新加坡时间 (UTC+8): {singapore_time}")
+                print(f"美国东部时间 (UTC-4): {us_eastern_time}")
+                print(f"arXiv通常按美国东部时间发布论文")
+                
                 # 构建日期范围查询
-                # 如果目标日期是今天或昨天，使用宽松的查询方式
-                today = dt.date.today()
-                if target_date >= today - dt.timedelta(days=1):
+                # 考虑时区差异：在新加坡时间下，arXiv的"今天"可能实际上是昨天
+                # arXiv使用美国东部时间，新加坡比美国东部时间快12小时
+                today_utc = dt.datetime.now(dt.timezone.utc).date()
+                us_eastern_today = utc_now.astimezone(dt.timezone(dt.timedelta(hours=-4))).date()
+                
+                print(f"UTC今天: {today_utc}")
+                print(f"美国东部今天: {us_eastern_today}")
+                print(f"目标日期: {target_date}")
+                
+                # 如果目标日期是最近3天内，使用宽松的查询方式
+                if target_date >= today_utc - dt.timedelta(days=2):
                     URL = ("http://export.arxiv.org/api/query?"
                            f"search_query=cat:{category}&"
                            "sortBy=submittedDate&sortOrder=descending&"
@@ -68,23 +84,47 @@ def crawl_arxiv_papers(target_date_str, category="cs.CV"):
                 print("\n现在检查所有论文...")
                 for i, entry in enumerate(feed.entries):
                     pub_date = dt.datetime(*entry.published_parsed[:6]).date()
+                    pub_datetime = dt.datetime(*entry.published_parsed[:6])
+                    print(f"论文 {i+1}: 发布日期 {pub_date}, 发布时间 {pub_datetime}, 标题: {entry.title[:50]}...")
                     
-                    # 只保留目标日期的论文
-                    if pub_date == target_date:
-                        # print(f"找到目标日期的论文: {entry.title[:50]}...")
+                    # 对于最近的日期，使用更宽松的匹配策略
+                    if target_date >= today_utc - dt.timedelta(days=2):
+                        # 考虑时区影响，匹配目标日期的前后一天
+                        # 这是因为arXiv使用美国东部时间，而服务器可能在其他时区
+                        date_tolerance = [
+                            target_date - dt.timedelta(days=1),  # 前一天
+                            target_date,                          # 目标日期
+                            target_date + dt.timedelta(days=1)   # 后一天
+                        ]
                         
-                        rows.append({
-                            "No.":       len(rows) + 1,  # 从1开始的序号
-                            "number_id": re.search(r'(\d+\.\d+)', entry.id).group(1),
-                            "title":     entry.title.strip().replace('\n', ' '),
-                            "authors":   ', '.join(a.name for a in entry.authors),
-                            "abstract":  entry.summary.strip().replace('\n', ' '),
-                            "link":      entry.link
-                        })
-                    elif pub_date < target_date:
-                        # 如果遇到早于目标日期的论文，说明已经过了目标日期，可以停止搜索
-                        print(f"发布日期 {pub_date} 早于目标日期 {target_date}，停止搜索")
-                        break
+                        if pub_date in date_tolerance:
+                            print(f"找到目标日期的论文 (发布日期: {pub_date}): {entry.title[:50]}...")
+                            
+                            rows.append({
+                                "No.":       len(rows) + 1,  # 从1开始的序号
+                                "number_id": re.search(r'(\d+\.\d+)', entry.id).group(1),
+                                "title":     entry.title.strip().replace('\n', ' '),
+                                "authors":   ', '.join(a.name for a in entry.authors),
+                                "abstract":  entry.summary.strip().replace('\n', ' '),
+                                "link":      entry.link
+                            })
+                    else:
+                        # 对于较早的日期，使用严格匹配
+                        if pub_date == target_date:
+                            print(f"找到目标日期的论文: {entry.title[:50]}...")
+                            
+                            rows.append({
+                                "No.":       len(rows) + 1,  # 从1开始的序号
+                                "number_id": re.search(r'(\d+\.\d+)', entry.id).group(1),
+                                "title":     entry.title.strip().replace('\n', ' '),
+                                "authors":   ', '.join(a.name for a in entry.authors),
+                                "abstract":  entry.summary.strip().replace('\n', ' '),
+                                "link":      entry.link
+                            })
+                        elif pub_date < target_date - dt.timedelta(days=1):
+                            # 如果遇到比目标日期早两天的论文，停止搜索
+                            print(f"发布日期 {pub_date} 比目标日期 {target_date} 早两天，停止搜索")
+                            break
                 
                 print(f"找到 {len(rows)} 篇论文")
                 
