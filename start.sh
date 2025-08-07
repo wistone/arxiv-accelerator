@@ -24,8 +24,19 @@ if ! python3 -c "import flask" &> /dev/null; then
     fi
 fi
 
+# 显示环境变量调试信息
+echo "环境变量调试信息:"
+echo "PORT: ${PORT:-'未设置 (将使用默认8080)'}"
+echo "RENDER: ${RENDER:-'未设置 (本地环境)'}"
+echo
+
 echo "启动服务器..."
-echo "访问地址: http://localhost:8080"
+if [ -n "$PORT" ]; then
+    echo "检测到Render环境，使用端口: $PORT"
+else
+    echo "本地环境，使用默认端口: 8080"
+    echo "访问地址: http://localhost:8080"
+fi
 echo "按 Ctrl+C 停止服务器"
 echo
 

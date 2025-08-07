@@ -44,6 +44,16 @@ analysis_lock = threading.Lock()
 def index():
     return send_from_directory('.', 'arxiv_assistant.html')
 
+@app.route('/health')
+def health_check():
+    """健康检查端点，用于Render部署验证"""
+    return jsonify({
+        'status': 'healthy',
+        'service': 'arxiv-accelerator',
+        'timestamp': datetime.now().isoformat(),
+        'version': '1.0.0'
+    })
+
 @app.route('/api/search_articles', methods=['POST'])
 def search_articles():
     try:
@@ -897,8 +907,14 @@ if __name__ == '__main__':
     sys.stdout.reconfigure(line_buffering=True)
     sys.stderr.reconfigure(line_buffering=True)
     
+    # 正确处理Render的PORT环境变量
+    port = int(os.getenv('PORT', 8080))  # Render注入PORT环境变量，本地默认8080
+    host = '0.0.0.0'  # 必须绑定到所有接口，不能用localhost
+    
     print("启动Arxiv文章初筛小助手服务器...")
-    print("访问地址: http://localhost:8080")
+    print(f"环境PORT变量: {os.getenv('PORT', 'None (使用默认8080)')}")
+    print(f"实际使用端口: {port}")
+    print(f"绑定地址: {host}")
     print(f"Python版本: {sys.version}")
     print(f"当前工作目录: {os.getcwd()}")
     
@@ -906,7 +922,9 @@ if __name__ == '__main__':
     is_production = os.getenv('RENDER') is not None
     if is_production:
         print("🌐 检测到Render生产环境，优化日志配置")
-        app.run(debug=False, host='0.0.0.0', port=8080)
+        print(f"访问地址: https://你的render域名")
+        app.run(debug=False, host=host, port=port)
     else:
         print("🖥️  本地开发环境")
-        app.run(debug=True, host='0.0.0.0', port=8080) 
+        print(f"访问地址: http://localhost:{port}")
+        app.run(debug=True, host=host, port=port) 
