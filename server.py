@@ -21,6 +21,7 @@ from crawl_raw_info import crawl_arxiv_papers
 from paper_analysis_processor import analyze_paper, parse_markdown_table, generate_analysis_markdown, generate_analysis_fail_markdown
 from doubao_client import DoubaoClient
 from auto_commit_github_api import GitHubAutoCommit
+from db import repo as db_repo
 
 app = Flask(__name__)
 CORS(app)  # 允许跨域请求
@@ -74,22 +75,29 @@ def search_articles():
         filename = f"{date_obj.strftime('%Y-%m-%d')}-{selected_category}-result.md"
         filepath = os.path.join('log', filename)
         
-        # 检查文件是否存在，如果不存在则尝试爬取
+        use_db_write = os.getenv('USE_DB_WRITE', 'false').lower() == 'true'
+        use_db_read = os.getenv('USE_DB_READ', 'false').lower() == 'true'
+
+        # 如果文件不存在，触发爬虫；当开启DB写入时，爬虫内部完成后应写入DB（后续可在crawl_raw_info中接入db_repo）
         if not os.path.exists(filepath):
             print(f"文件不存在: {filepath}，开始爬取数据...")
-            
-            # 调用爬虫函数
             success = crawl_arxiv_papers(selected_date, selected_category)
-            
-            if not success:
+            if not success and not use_db_read:
                 return jsonify({'error': f'爬取 {selected_date} 的 {selected_category} 数据失败，请稍后重试'}), 500
-            
-            # 重新检查文件是否存在
-            if not os.path.exists(filepath):
-                return jsonify({'error': f'爬取完成但未找到生成的文件: {filepath}'}), 500
         
-        # 读取并解析markdown文件
-        articles = parse_markdown_file(filepath, selected_category)
+        # 优先从DB读取（当USE_DB_READ=true）
+        articles = []
+        if use_db_read:
+            try:
+                articles = db_repo.list_papers_by_date_category(selected_date, selected_category)
+            except Exception as e:
+                print(f"从DB读取失败，降级到文件: {e}")
+                articles = []
+        # 回退到文件
+        if not use_db_read or len(articles) == 0:
+            if not os.path.exists(filepath):
+                return jsonify({'error': f'未找到 {selected_date} 的 {selected_category} 数据文件'}), 404
+            articles = parse_markdown_file(filepath, selected_category)
         
         # 如果没有找到论文，返回错误信息并删除空文件，这样下次可以重新尝试
         if len(articles) == 0:
@@ -340,6 +348,9 @@ def analyze_papers():
         if not selected_date:
             return jsonify({'error': '请选择日期'}), 400
         
+        use_db_read = os.getenv('USE_DB_READ', 'false').lower() == 'true'
+        use_db_write = os.getenv('USE_DB_WRITE', 'false').lower() == 'true'
+
         # 构建输入文件路径
         filename = f"{selected_date}-{selected_category}-result.md"
         filepath = os.path.join('log', filename)
@@ -716,7 +727,9 @@ def get_analysis_results():
         if not selected_date:
             return jsonify({'error': '请选择日期'}), 400
         
-        # 根据选择的范围构建分析结果文件路径
+        use_db_read = os.getenv('USE_DB_READ', 'false').lower() == 'true'
+
+        # 根据选择的范围构建分析结果文件路径（文件分支保留以兼容旧逻辑）
         if selected_range == 'top5':
             filename = f"{selected_date}-{selected_category}-analysis-top5.md"
             fail_filename = f"{selected_date}-{selected_category}-analysis-top5-fail.md"
@@ -746,9 +759,28 @@ def get_analysis_results():
                 'range_type': selected_range
             })
         
+        # 当USE_DB_READ=true时，优先从DB返回分析结果
+        if use_db_read:
+            try:
+                prompt_id = db_repo.get_prompt_id_by_name("system_default")
+                if prompt_id:
+                    limit = 5 if selected_range == 'top5' else 10 if selected_range == 'top10' else 20 if selected_range == 'top20' else None
+                    articles = db_repo.get_analysis_results(date=selected_date, category=selected_category, prompt_id=prompt_id, limit=limit)
+                    if len(articles) > 0:
+                        return jsonify({
+                            'success': True,
+                            'articles': articles,
+                            'total': len(articles),
+                            'date': selected_date,
+                            'category': selected_category,
+                            'range_type': selected_range
+                        })
+            except Exception as e:
+                print(f"从DB读取分析结果失败，降级到文件: {e}")
+
         if not os.path.exists(filepath):
             return jsonify({'error': f'未找到 {selected_date} 的 {selected_category} {selected_range} 分析结果文件'}), 404
-        
+
         # 解析分析结果文件
         articles = parse_analysis_markdown_file(filepath)
         
@@ -872,25 +904,29 @@ def parse_analysis_markdown_file(filepath):
 def get_available_dates():
     """获取可用的日期列表"""
     try:
+        use_db_read = os.getenv('USE_DB_READ', 'false').lower() == 'true'
+        if use_db_read:
+            try:
+                dates = db_repo.list_available_dates()
+                return jsonify({'dates': dates})
+            except Exception as e:
+                print(f"从DB读取日期失败，降级到文件: {e}")
+
         log_dir = 'log'
         if not os.path.exists(log_dir):
             return jsonify({'dates': []})
-        
+
         dates = []
         for filename in os.listdir(log_dir):
             if filename.endswith('-result.md'):
-                # 提取日期部分
                 date_part = filename.replace('-result.md', '')
                 try:
-                    # 验证日期格式
                     datetime.strptime(date_part, '%Y-%m-%d')
                     dates.append(date_part)
                 except ValueError:
                     continue
-        
-        # 按日期排序
+
         dates.sort(reverse=True)
-        
         return jsonify({'dates': dates})
         
     except Exception as e:
