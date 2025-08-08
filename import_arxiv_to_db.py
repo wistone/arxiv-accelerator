@@ -25,7 +25,7 @@
 import datetime as dt
 import os
 import re
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 
 import feedparser
 import pytz
@@ -143,8 +143,10 @@ def import_arxiv_papers_to_db(
         print(f"按limit截断为 {len(kept)} 条")
     total = len(kept)
 
-    total_upsert = 0
-    total_link = 0
+    # ===== 新：批处理提速路径 =====
+    # 1) 预解析 entries，构建待写入行与类别映射
+    parsed_items: List[Dict[str, Any]] = []
+    arxiv_to_categories: Dict[str, List[str]] = {}
     errors = 0
 
     for idx, entry in enumerate(kept, start=1):
@@ -153,7 +155,6 @@ def import_arxiv_papers_to_db(
             if not arxiv_id:
                 print(f"[{idx}] 跳过：无法解析arxiv_id | id={getattr(entry, 'id', '')}")
                 continue
-
             title = (entry.title or "").strip().replace("\n", " ")
             authors = ", ".join(a.name for a in getattr(entry, "authors", []) if getattr(a, "name", None))
             abstract = (entry.summary or "").strip().replace("\n", " ")
@@ -161,59 +162,86 @@ def import_arxiv_papers_to_db(
             primary_category = _extract_primary_category(entry)
             all_categories = _extract_all_categories(entry)
 
-            # 提取 <updated> 的时间部分作为 update_time
-            # feedparser 提供 updated_parsed
             upd_time = None
             if getattr(entry, "updated_parsed", None):
                 t = dt.datetime(*entry.updated_parsed[:6])  # naive UTC
                 upd_time = t.time().isoformat()
 
-            # 已存在处理
-            existing_id = db_repo.get_paper_id_by_arxiv_id(arxiv_id)
-            if existing_id and skip_if_exists:
-                paper_id = existing_id
-                now = dt.datetime.now().isoformat(timespec='seconds')
-                print(f"[{idx}/{total}] arxiv_id={arxiv_id} update_date={target_date_str} search_category={category} primary={primary_category} now={now} | skip existing paper & categories")
-                # 跳过 paper_categories 写入
-                continue
-            else:
-                # 写papers（upsert）
-                paper_id = db_repo.upsert_paper(
-                    arxiv_id=arxiv_id,
-                    title=title,
-                    authors=authors,
-                    abstract=abstract,
-                    link=link,
-                    update_date=target_date_str,
-                    primary_category=primary_category,
-                )
-            # 若支持 update_time，单独更新（避免破坏幂等）
-            if not (existing_id and skip_if_exists):
-                try:
-                    if upd_time:
-                        from db.client import app_schema
-                        app_schema().from_("papers").update({"update_time": upd_time}).eq("paper_id", paper_id).execute()
-                except Exception as _:
-                    pass
+            row: Dict[str, Any] = {
+                "arxiv_id": arxiv_id,
+                "title": title,
+                "authors": authors,
+                "abstract": abstract,
+                "link": link,
+                "update_date": target_date_str,
+                "primary_category": primary_category,
+            }
+            if upd_time:
+                row["update_time"] = upd_time
 
-                now = dt.datetime.now().isoformat(timespec='seconds')
-                print(f"[{idx}/{total}] arxiv_id={arxiv_id} update_date={target_date_str} search_category={category} now={now}")
-                total_upsert += 1
-
-            # 写categories与关联（仅当不是跳过已存在时）
-            for cat in all_categories:
-                cid = db_repo.upsert_category(cat)
-                db_repo.link_paper_category(paper_id, cat)
-                print(f"    + link category: {cat} (category_id={cid})")
-                total_link += 1
-            
-            # 及时刷新输出
-            import sys
-            sys.stdout.flush()
-
+            parsed_items.append(row)
+            arxiv_to_categories[arxiv_id] = all_categories
         except Exception as e:
             errors += 1
-            print(f"[{idx}] ❌ 处理失败: {e}")
+            print(f"[{idx}] ❌ 预处理失败: {e}")
+
+    total = len(parsed_items)
+
+    # 2) 处理已存在逻辑
+    all_ids = [r["arxiv_id"] for r in parsed_items]
+    existing_rows = db_repo.get_papers_by_arxiv_ids(all_ids)
+    existing_set = {r["arxiv_id"] for r in existing_rows}
+
+    items_for_write: List[Dict[str, Any]]
+    if skip_if_exists:
+        items_for_write = [r for r in parsed_items if r["arxiv_id"] not in existing_set]
+    else:
+        items_for_write = parsed_items  # 覆盖更新
+
+    # 3) 批量 upsert/insert papers
+    arxiv_to_paper_id: Dict[str, int] = {}
+    if items_for_write:
+        if skip_if_exists:
+            # 仅补缺
+            arxiv_to_paper_id.update(db_repo.upsert_papers_bulk(items_for_write))
+        else:
+            # 覆盖更新：直接 upsert 全量，再查询映射
+            from db.client import app_schema
+            app_schema().from_("papers").upsert(items_for_write, on_conflict="arxiv_id").execute()
+            arxiv_to_paper_id.update({r["arxiv_id"]: r["paper_id"] for r in db_repo.get_papers_by_arxiv_ids(all_ids)})
+
+    # 对于 skip_if_exists=true 的情形，已有的也需要映射（用于后续关联时若你将来想保留，但当前逻辑保持与旧实现一致：跳过已有，不再做关联）
+
+    # 4) 批量 upsert categories 并建立关联（仅对新写入的 paper）
+    new_arxiv_ids = set(r["arxiv_id"] for r in items_for_write)
+    all_category_names: List[str] = []
+    for aid in new_arxiv_ids:
+        all_category_names.extend(arxiv_to_categories.get(aid, []))
+    cat_name_to_id = db_repo.upsert_categories_bulk(all_category_names) if all_category_names else {}
+
+    pairs: List[Tuple[int, int]] = []  # (paper_id, category_id)
+    for aid in new_arxiv_ids:
+        pid = arxiv_to_paper_id.get(aid)
+        if not pid:
+            continue
+        for cat in arxiv_to_categories.get(aid, []):
+            cid = cat_name_to_id.get(cat)
+            if cid:
+                pairs.append((pid, cid))
+    if pairs:
+        db_repo.upsert_paper_categories_bulk(pairs)
+
+    # 5) 打印日志（与旧行为尽量一致）
+    total_upsert = len(new_arxiv_ids)
+    total_link = len(pairs)
+    for idx, aid in enumerate(new_arxiv_ids, start=1):
+        now = dt.datetime.now().isoformat(timespec='seconds')
+        primary_category = parsed_items[[r["arxiv_id"] for r in parsed_items].index(aid)].get("primary_category")
+        print(f"[{idx}/{total}] arxiv_id={aid} update_date={target_date_str} search_category={category} now={now}")
+        for cat in arxiv_to_categories.get(aid, []):
+            cid = cat_name_to_id.get(cat)
+            if cid:
+                print(f"    + link category: {cat} (category_id={cid})")
 
     return {
         "total_upsert": total_upsert,

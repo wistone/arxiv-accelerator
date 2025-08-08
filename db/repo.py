@@ -297,3 +297,117 @@ def list_available_dates() -> List[str]:
     return result
 
 
+# =====================
+# 批量写入/查询 加速接口
+# =====================
+
+def get_papers_by_arxiv_ids(arxiv_ids: List[str]) -> List[Dict[str, Any]]:
+    db = app_schema()
+    if not arxiv_ids:
+        return []
+    # PostgREST in() 最多参数可能有限制，做一下分块
+    result: List[Dict[str, Any]] = []
+    chunk_size = 500
+    for i in range(0, len(arxiv_ids), chunk_size):
+        chunk = arxiv_ids[i:i + chunk_size]
+        rows = (
+            db.from_("papers")
+            .select("paper_id, arxiv_id")
+            .in_("arxiv_id", chunk)
+            .execute()
+            .data
+        )
+        result.extend(rows)
+    return result
+
+
+def upsert_papers_bulk(rows: List[Dict[str, Any]]) -> Dict[str, int]:
+    """批量 upsert papers，返回 arxiv_id -> paper_id 的映射。
+
+    策略：
+      1) 先查已有 arxiv_id → paper_id（一次或分块）
+      2) 仅对缺失的执行批量 upsert/insert（带 returning），再整体 select 一次获得完整映射
+    """
+    db = app_schema()
+    if not rows:
+        return {}
+
+    all_arxiv_ids = [r["arxiv_id"] for r in rows if r.get("arxiv_id")]
+    existing = get_papers_by_arxiv_ids(all_arxiv_ids)
+    arxiv_to_id: Dict[str, int] = {r["arxiv_id"]: r["paper_id"] for r in existing}
+
+    missing_rows = [r for r in rows if r["arxiv_id"] not in arxiv_to_id]
+    if missing_rows:
+        # 使用 upsert 以便多进程情况下也安全；returning 默认 representation
+        try:
+            db.from_("papers").upsert(missing_rows, on_conflict="arxiv_id").execute()
+        except Exception:
+            # 若当前库不支持 upsert 方法，退化为批量 insert（并发冲突情况下由唯一键保护）
+            db.from_("papers").insert(missing_rows).execute()
+
+    # 统一再 select 一次，得到完整映射
+    final_rows = get_papers_by_arxiv_ids(all_arxiv_ids)
+    final_map: Dict[str, int] = {r["arxiv_id"]: r["paper_id"] for r in final_rows}
+    return final_map
+
+
+def get_categories_by_names(names: List[str]) -> List[Dict[str, Any]]:
+    db = app_schema()
+    if not names:
+        return []
+    result: List[Dict[str, Any]] = []
+    chunk_size = 1000
+    for i in range(0, len(names), chunk_size):
+        chunk = names[i:i + chunk_size]
+        rows = (
+            db.from_("categories")
+            .select("category_id, category_name")
+            .in_("category_name", chunk)
+            .execute()
+            .data
+        )
+        result.extend(rows)
+    return result
+
+
+def upsert_categories_bulk(names: List[str]) -> Dict[str, int]:
+    db = app_schema()
+    if not names:
+        return {}
+    uniq = sorted({n for n in names if n})
+    existing = get_categories_by_names(uniq)
+    name_to_id: Dict[str, int] = {r["category_name"]: r["category_id"] for r in existing}
+
+    missing = [n for n in uniq if n not in name_to_id]
+    if missing:
+        rows = [{"category_name": n} for n in missing]
+        try:
+            db.from_("categories").upsert(rows, on_conflict="category_name").execute()
+        except Exception:
+            db.from_("categories").insert(rows).execute()
+
+    # fetch all
+    final_rows = get_categories_by_names(uniq)
+    final_map: Dict[str, int] = {r["category_name"]: r["category_id"] for r in final_rows}
+    return final_map
+
+
+def upsert_paper_categories_bulk(pairs: List[Tuple[int, int]]) -> None:
+    """批量 upsert paper_categories，pairs 为 (paper_id, category_id)。"""
+    db = app_schema()
+    if not pairs:
+        return
+    rows = [{"paper_id": p, "category_id": c} for p, c in pairs]
+    try:
+        db.from_("paper_categories").upsert(rows, on_conflict="paper_id,category_id").execute()
+    except Exception:
+        # 退化：分块插入，遇到重复由唯一键报错则忽略
+        chunk_size = 1000
+        for i in range(0, len(rows), chunk_size):
+            chunk = rows[i:i + chunk_size]
+            try:
+                db.from_("paper_categories").insert(chunk).execute()
+            except Exception:
+                # 忽略重复错误
+                pass
+

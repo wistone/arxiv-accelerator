@@ -29,13 +29,17 @@ def daterange(start: dt.date, end: dt.date):
 
 def main():
     # Mode 1: 2025-07-29 ~ 2025-08-07 Only full analysis
-    start_date = [dt.date(2025, 7, 29), dt.date(2025, 7, 30),  dt.date(2025, 7, 30),
-         dt.date(2025, 7, 31), dt.date(2025, 7, 31),  dt.date(2025, 7, 31),
-         dt.date(2025, 8, 1), dt.date(2025, 8, 2),  dt.date(2025, 8, 2),
-         dt.date(2025, 8, 3), dt.date(2025, 8, 4),  dt.date(2025, 8, 5),
+    start_date = [
+        # dt.date(2025, 7, 29), dt.date(2025, 7, 30),  dt.date(2025, 7, 30),
+        #  dt.date(2025, 7, 31), dt.date(2025, 7, 31),  dt.date(2025, 7, 31),
+        #  dt.date(2025, 8, 1), dt.date(2025, 8, 2),  dt.date(2025, 8, 2),
+        #  dt.date(2025, 8, 3), 
+         dt.date(2025, 8, 4),  dt.date(2025, 8, 5),
          dt.date(2025, 8, 6), dt.date(2025, 8, 7)] 
-    cat = ["cs.CV", "cs.CV", "cs.LG", "cs.AI", "cs.CV", "cs.LG", 
-         "cs.CV", "cs.AI", "cs.CV", "cs.CV", "cs.CV", "cs.CV", "cs.CV", "cs.CV"]
+    cat = [
+        # "cs.CV", "cs.CV", "cs.LG", "cs.AI", "cs.CV", "cs.LG", 
+        #  "cs.CV", "cs.AI", "cs.CV", "cs.CV", 
+         "cs.CV", "cs.CV", "cs.CV", "cs.CV"]
 
     for i in range(len(start_date)):
         stats = import_arxiv_papers_to_db(start_date[i].isoformat(), cat[i], limit=None, skip_if_exists=True)
