@@ -31,6 +31,7 @@ create table if not exists app.papers (
   abstract text,
   link text,
   update_date date,
+  update_time time,
   primary_category text,
   ingest_at timestamptz not null default now()
 );

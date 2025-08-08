@@ -1,0 +1,220 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+从 arXiv 拉取指定日期/分类的论文并写入 Supabase 数据库：app.papers 与 app.paper_categories。
+
+时间窗口规则：按 ET(US/Eastern) 的 20:00 为每天边界，目标日的窗口为：
+  [目标日前一日 20:00, 目标日 20:00] (闭区间)
+
+字段映射：
+  - arxiv_id: 例如 "2508.05636v1"（从 entry.id 或 entry.link 的 /abs/<id> 提取，包含版本号）
+  - title, authors, abstract, link
+  - primary_category: arxiv:primary_category 的 term；无则从 tags 第一项回退
+  - update_date: 目标日期（YYYY-MM-DD）
+  - ingest_at: 由数据库默认值生成
+
+写库策略：
+  - papers: upsert（按 arxiv_id 唯一）
+  - categories: 对所有出现的 category term upsert
+  - paper_categories: 建立 (paper_id, category_id) 关联（按多对多）
+
+日志：每条写库操作输出到stdout，便于确认。
+"""
+
+import datetime as dt
+import os
+import re
+from typing import List, Dict, Any, Optional
+
+import feedparser
+import pytz
+import requests
+
+from db import repo as db_repo
+
+
+def _extract_arxiv_id(entry: Any) -> Optional[str]:
+    """从entry.id或entry.link中提取包含版本号的arXiv ID，如 2508.05636v1。
+    规则：优先从 entry.id 中解析 /abs/<id>；否则从 entry.link 解析。
+    """
+    candidates = []
+    if getattr(entry, "id", None):
+        candidates.append(entry.id)
+    if getattr(entry, "link", None):
+        candidates.append(entry.link)
+
+    for url in candidates:
+        # 典型: http://arxiv.org/abs/2508.05636v1
+        m = re.search(r"/abs/([0-9]{4}\.[0-9]{5}(v\d+)?)(?:[?#].*)?$", url)
+        if m:
+            return m.group(1)
+    # 有些feed可能是https://arxiv.org/abs/YYMM.numberv1 变体，兜底再试一次宽松匹配
+    for url in candidates:
+        m = re.search(r"([0-9]{4}\.[0-9]{5}v\d+)", url)
+        if m:
+            return m.group(1)
+    return None
+
+
+def _extract_primary_category(entry: Any) -> Optional[str]:
+    # feedparser会把arxiv:primary_category映射到 entry.arxiv_primary_category
+    pc = getattr(entry, "arxiv_primary_category", None)
+    if isinstance(pc, dict) and pc.get("term"):
+        return pc["term"]
+    # 回退：从 tags 列表取第一项term
+    tags = getattr(entry, "tags", [])
+    for t in tags:
+        term = t.get("term") if isinstance(t, dict) else None
+        if term:
+            return term
+    return None
+
+
+def _extract_all_categories(entry: Any) -> List[str]:
+    cats: List[str] = []
+    tags = getattr(entry, "tags", [])
+    for t in tags:
+        term = t.get("term") if isinstance(t, dict) else None
+        if term and term not in cats:
+            cats.append(term)
+    # 确保primary也在列表中
+    pc = _extract_primary_category(entry)
+    if pc and pc not in cats:
+        cats.append(pc)
+    return cats
+
+
+def import_arxiv_papers_to_db(target_date_str: str, category: str = "cs.CV", limit: Optional[int] = None) -> Dict[str, Any]:
+    target_date = dt.datetime.strptime(target_date_str, "%Y-%m-%d").date()
+    et_tz = pytz.timezone("US/Eastern")
+
+    start_et = et_tz.localize(dt.datetime.combine(target_date - dt.timedelta(days=1), dt.time(20, 0)))
+    end_et = et_tz.localize(dt.datetime.combine(target_date, dt.time(20, 0)))
+
+    start_utc = start_et.astimezone(dt.timezone.utc)
+    end_utc = end_et.astimezone(dt.timezone.utc)
+
+    start_date_str = start_utc.strftime("%Y%m%d%H%M%S")
+    end_date_str = end_utc.strftime("%Y%m%d%H%M%S")
+
+    base = os.getenv("ARXIV_API_BASE", "https://export.arxiv.org/api/query")
+    url = (
+        f"{base}?"
+        f"search_query=cat:{category}+AND+submittedDate:[{start_date_str}+TO+{end_date_str}]&"
+        "sortBy=submittedDate&sortOrder=descending&"
+        "max_results=2000"
+    )
+
+    print(f"目标日期(ET): {target_date} | 分类: {category}")
+    print(f"窗口(ET): {start_et} ~ {end_et}")
+    print(f"窗口(UTC): {start_utc} ~ {end_utc}")
+    print(f"URL: {url}")
+
+    try:
+        resp = requests.get(url, timeout=30)
+        resp.raise_for_status()
+        feed = feedparser.parse(resp.text)
+    except Exception as e:
+        print(f"requests获取失败，将尝试feedparser直连: {e}")
+        try:
+            feed = feedparser.parse(url)
+        except Exception as e2:
+            # 尝试http回退
+            http_url = url.replace("https://", "http://")
+            print(f"feedparser直连失败，尝试HTTP回退: {e2}")
+            feed = feedparser.parse(http_url)
+    print(f"API返回 {len(feed.entries)} 条")
+
+    kept: List[Any] = []
+    for i, entry in enumerate(feed.entries):
+        pub_utc = dt.datetime(*entry.published_parsed[:6], tzinfo=dt.timezone.utc)
+        if start_utc <= pub_utc <= end_utc:
+            kept.append(entry)
+
+    print(f"筛选后保留 {len(kept)} 条")
+    if limit is not None:
+        kept = kept[:limit]
+        print(f"按limit截断为 {len(kept)} 条")
+
+    total_upsert = 0
+    total_link = 0
+    errors = 0
+
+    for idx, entry in enumerate(kept, start=1):
+        try:
+            arxiv_id = _extract_arxiv_id(entry)
+            if not arxiv_id:
+                print(f"[{idx}] 跳过：无法解析arxiv_id | id={getattr(entry, 'id', '')}")
+                continue
+
+            title = (entry.title or "").strip().replace("\n", " ")
+            authors = ", ".join(a.name for a in getattr(entry, "authors", []) if getattr(a, "name", None))
+            abstract = (entry.summary or "").strip().replace("\n", " ")
+            link = getattr(entry, "link", f"https://arxiv.org/abs/{arxiv_id}")
+            primary_category = _extract_primary_category(entry)
+            all_categories = _extract_all_categories(entry)
+
+            # 提取 <updated> 的时间部分作为 update_time
+            # feedparser 提供 updated_parsed
+            upd_time = None
+            if getattr(entry, "updated_parsed", None):
+                t = dt.datetime(*entry.updated_parsed[:6])  # naive UTC
+                upd_time = t.time().isoformat()
+
+            # 写papers
+            paper_id = db_repo.upsert_paper(
+                arxiv_id=arxiv_id,
+                title=title,
+                authors=authors,
+                abstract=abstract,
+                link=link,
+                update_date=target_date_str,
+                primary_category=primary_category,
+            )
+            # 若支持 update_time，单独更新（避免破坏幂等）
+            try:
+                if upd_time:
+                    from db.client import app_schema
+                    app_schema().from_("papers").update({"update_time": upd_time}).eq("paper_id", paper_id).execute()
+            except Exception as _:
+                pass
+
+            print(f"[{idx}] DB upsert paper: paper_id={paper_id}, arxiv_id={arxiv_id}, primary={primary_category}, update_time={upd_time}")
+            total_upsert += 1
+
+            # 写categories与关联
+            for cat in all_categories:
+                cid = db_repo.upsert_category(cat)
+                db_repo.link_paper_category(paper_id, cat)
+                print(f"    + link category: {cat} (category_id={cid})")
+                total_link += 1
+
+        except Exception as e:
+            errors += 1
+            print(f"[{idx}] ❌ 处理失败: {e}")
+
+    return {
+        "total_upsert": total_upsert,
+        "total_link": total_link,
+        "errors": errors,
+        "processed": len(kept),
+    }
+
+
+def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Import arXiv papers into Supabase DB")
+    parser.add_argument("date", help="YYYY-MM-DD")
+    parser.add_argument("category", help="e.g. cs.CV")
+    parser.add_argument("--limit", type=int, default=None, help="process only first N entries")
+    args = parser.parse_args()
+
+    stats = import_arxiv_papers_to_db(args.date, args.category, args.limit)
+    print("SUMMARY:", stats)
+
+
+if __name__ == "__main__":
+    main()
+
+
