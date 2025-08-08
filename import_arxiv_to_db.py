@@ -85,7 +85,12 @@ def _extract_all_categories(entry: Any) -> List[str]:
     return cats
 
 
-def import_arxiv_papers_to_db(target_date_str: str, category: str = "cs.CV", limit: Optional[int] = None) -> Dict[str, Any]:
+def import_arxiv_papers_to_db(
+    target_date_str: str,
+    category: str = "cs.CV",
+    limit: Optional[int] = None,
+    skip_if_exists: bool = True,
+) -> Dict[str, Any]:
     target_date = dt.datetime.strptime(target_date_str, "%Y-%m-%d").date()
     et_tz = pytz.timezone("US/Eastern")
 
@@ -136,6 +141,7 @@ def import_arxiv_papers_to_db(target_date_str: str, category: str = "cs.CV", lim
     if limit is not None:
         kept = kept[:limit]
         print(f"按limit截断为 {len(kept)} 条")
+    total = len(kept)
 
     total_upsert = 0
     total_link = 0
@@ -162,33 +168,48 @@ def import_arxiv_papers_to_db(target_date_str: str, category: str = "cs.CV", lim
                 t = dt.datetime(*entry.updated_parsed[:6])  # naive UTC
                 upd_time = t.time().isoformat()
 
-            # 写papers
-            paper_id = db_repo.upsert_paper(
-                arxiv_id=arxiv_id,
-                title=title,
-                authors=authors,
-                abstract=abstract,
-                link=link,
-                update_date=target_date_str,
-                primary_category=primary_category,
-            )
+            # 已存在处理
+            existing_id = db_repo.get_paper_id_by_arxiv_id(arxiv_id)
+            if existing_id and skip_if_exists:
+                paper_id = existing_id
+                now = dt.datetime.now().isoformat(timespec='seconds')
+                print(f"[{idx}/{total}] arxiv_id={arxiv_id} update_date={target_date_str} search_category={category} primary={primary_category} now={now} | skip existing paper & categories")
+                # 跳过 paper_categories 写入
+                continue
+            else:
+                # 写papers（upsert）
+                paper_id = db_repo.upsert_paper(
+                    arxiv_id=arxiv_id,
+                    title=title,
+                    authors=authors,
+                    abstract=abstract,
+                    link=link,
+                    update_date=target_date_str,
+                    primary_category=primary_category,
+                )
             # 若支持 update_time，单独更新（避免破坏幂等）
-            try:
-                if upd_time:
-                    from db.client import app_schema
-                    app_schema().from_("papers").update({"update_time": upd_time}).eq("paper_id", paper_id).execute()
-            except Exception as _:
-                pass
+            if not (existing_id and skip_if_exists):
+                try:
+                    if upd_time:
+                        from db.client import app_schema
+                        app_schema().from_("papers").update({"update_time": upd_time}).eq("paper_id", paper_id).execute()
+                except Exception as _:
+                    pass
 
-            print(f"[{idx}] DB upsert paper: paper_id={paper_id}, arxiv_id={arxiv_id}, primary={primary_category}, update_time={upd_time}")
-            total_upsert += 1
+                now = dt.datetime.now().isoformat(timespec='seconds')
+                print(f"[{idx}/{total}] arxiv_id={arxiv_id} update_date={target_date_str} search_category={category} now={now}")
+                total_upsert += 1
 
-            # 写categories与关联
+            # 写categories与关联（仅当不是跳过已存在时）
             for cat in all_categories:
                 cid = db_repo.upsert_category(cat)
                 db_repo.link_paper_category(paper_id, cat)
                 print(f"    + link category: {cat} (category_id={cid})")
                 total_link += 1
+            
+            # 及时刷新输出
+            import sys
+            sys.stdout.flush()
 
         except Exception as e:
             errors += 1

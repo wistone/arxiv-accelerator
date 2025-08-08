@@ -87,6 +87,17 @@ def get_paper_id_by_arxiv_id(arxiv_id: str) -> Optional[int]:
     return None
 
 
+def analysis_exists(paper_id: int, prompt_id: str) -> bool:
+    db = app_schema()
+    res = db.from_("analysis_results").select("analysis_id").eq("paper_id", paper_id).eq("prompt_id", prompt_id).limit(1).execute()
+    return bool(res.data)
+
+
+def update_paper_author_affiliation(paper_id: int, author_affiliation: str) -> None:
+    db = app_schema()
+    db.from_("papers").update({"author_affiliation": author_affiliation}).eq("paper_id", paper_id).execute()
+
+
 def link_paper_category(paper_id: int, category_name: str) -> None:
     db = app_schema()
     category_id = upsert_category(category_name)
