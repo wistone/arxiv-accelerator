@@ -22,6 +22,7 @@ from paper_analysis_processor import analyze_paper, parse_markdown_table, genera
 from doubao_client import DoubaoClient
 from auto_commit_github_api import GitHubAutoCommit
 from db import repo as db_repo
+from import_arxiv_to_db import import_arxiv_papers_to_db
 
 app = Flask(__name__)
 CORS(app)  # 允许跨域请求
@@ -60,68 +61,53 @@ def search_articles():
     try:
         data = request.get_json()
         selected_date = data.get('date')
-        selected_category = data.get('category', 'cs.CV')  # 默认使用cs.CV
-        
+        selected_category = data.get('category', 'cs.CV')
+
         if not selected_date:
             return jsonify({'error': '请选择日期'}), 400
-        
-        # 检查是否是今天
-        today = datetime.now().date()
-        selected_date_obj = datetime.strptime(selected_date, '%Y-%m-%d').date()
-        is_today = selected_date_obj == today
-        
-        # 构建文件名
-        date_obj = datetime.strptime(selected_date, '%Y-%m-%d')
-        filename = f"{date_obj.strftime('%Y-%m-%d')}-{selected_category}-result.md"
-        filepath = os.path.join('log', filename)
-        
-        use_db_write = os.getenv('USE_DB_WRITE', 'false').lower() == 'true'
-        use_db_read = os.getenv('USE_DB_READ', 'false').lower() == 'true'
 
-        # 如果文件不存在，触发爬虫；当开启DB写入时，爬虫内部完成后应写入DB（后续可在crawl_raw_info中接入db_repo）
-        if not os.path.exists(filepath):
-            print(f"文件不存在: {filepath}，开始爬取数据...")
-            success = crawl_arxiv_papers(selected_date, selected_category)
-            if not success and not use_db_read:
-                return jsonify({'error': f'爬取 {selected_date} 的 {selected_category} 数据失败，请稍后重试'}), 500
-        
-        # 优先从DB读取（当USE_DB_READ=true）
-        articles = []
-        if use_db_read:
-            try:
-                articles = db_repo.list_papers_by_date_category(selected_date, selected_category)
-            except Exception as e:
-                print(f"从DB读取失败，降级到文件: {e}")
-                articles = []
-        # 回退到文件
-        if not use_db_read or len(articles) == 0:
-            if not os.path.exists(filepath):
-                return jsonify({'error': f'未找到 {selected_date} 的 {selected_category} 数据文件'}), 404
-            articles = parse_markdown_file(filepath, selected_category)
-        
-        # 如果没有找到论文，返回错误信息并删除空文件，这样下次可以重新尝试
+        # 1) 直接通过 arXiv API 抓取并写入数据库（已存在的arxiv_id自动跳过）
+        try:
+            stats = import_arxiv_papers_to_db(selected_date, selected_category, limit=None, skip_if_exists=True)
+            print(f"import_arxiv_papers_to_db 完成: {stats}")
+        except Exception as e:
+            # 抓取或写库失败不应崩溃接口，继续尝试读取数据库（可能已有历史数据）
+            print(f"写入数据库过程中出错（将继续从DB读取）: {e}")
+
+        # 2) 从数据库读取并返回给前端（保持原协议字段）
+        try:
+            articles = db_repo.list_papers_by_date_category(selected_date, selected_category)
+            # 额外调试日志：对比导入统计与DB返回数量
+            imported = stats.get('processed') if isinstance(locals().get('stats'), dict) else None
+            upserted = stats.get('total_upsert') if isinstance(locals().get('stats'), dict) else None
+            print(f"DB读取 {len(articles)} 条 | date={selected_date} category={selected_category} | 导入processed={imported} upserted={upserted}")
+            if imported is not None and len(articles) != imported:
+                sample_ids = [a.get('id') for a in articles[:5]]
+                print(f"数量不一致: processed={imported} vs db={len(articles)}。可能原因：1) PostgREST 分页导致截断（已改用 range() 强制扩大）；2) 日期窗口差异；3) 分类关联缺失。样本arxiv_id={sample_ids}")
+            # 如果数量异常，向前端携带日志，便于可视化
+            debug_log = {
+                'processed': imported,
+                'db_count': len(articles),
+                'category': selected_category,
+                'date': selected_date
+            }
+        except Exception as e:
+            return jsonify({'error': f'从数据库读取失败: {e}'}), 500
+
         if len(articles) == 0:
-            # 删除空的log文件和结果文件
-            log_file = os.path.join('log', f"{date_obj.strftime('%Y-%m-%d')}-{selected_category}-log.txt")
-            if os.path.exists(log_file):
-                os.remove(log_file)
-                print(f"已删除空的日志文件: {log_file}")
-            if os.path.exists(filepath):
-                os.remove(filepath)
-                print(f"已删除空的结果文件: {filepath}")
-            
             return jsonify({
-                'error': f'当天没有新的{selected_category}论文被提交到arXiv。这是正常现象，因为论文提交和索引需要时间。可能您选择了今天的日期，或者arXiv周末未更新。'
+                'error': f'当天没有新的{selected_category}论文被提交到arXiv，或数据尚未同步。请稍后重试。'
             }), 404
-        
+
         return jsonify({
             'success': True,
             'articles': articles,
             'total': len(articles),
             'date': selected_date,
-            'category': selected_category
+            'category': selected_category,
+            'debug': debug_log if 'debug_log' in locals() else None
         })
-        
+
     except Exception as e:
         return jsonify({'error': f'服务器错误: {str(e)}'}), 500
 

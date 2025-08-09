@@ -114,25 +114,49 @@ def list_papers_by_date_category(date: str | dt.date, category: str) -> List[Dic
     # join papers with categories via link (two-phase query because postgrest client lacks join)
     # Since supabase-py does not provide join, use SQL via postgrest rpc: emulate with filter + in
     # First, find paper_ids in this category
-    paper_ids = (
-        db.from_("paper_categories")
-        .select("paper_id")
-        .in_("category_id", [upsert_category(category)])
-        .execute()
-        .data
-    )
-    ids = [row["paper_id"] for row in paper_ids]
+    # 注意：postgrest 若未指定范围，可能只返回前10条。这里显式扩大limit。
+    category_id = upsert_category(category)
+    # 分页拉取所有关联paper_id，避免任何默认分页影响
+    ids: List[int] = []
+    page_size = 200
+    offset = 0
+    while True:
+        q_link = (
+            db.from_("paper_categories")
+            .select("paper_id")
+            .eq("category_id", category_id)
+        )
+        batch = q_link.range(offset, offset + page_size - 1).execute().data
+        if not batch:
+            break
+        ids.extend([row["paper_id"] for row in batch])
+        offset += page_size
+        if len(batch) < page_size:
+            break
+    try:
+        print(f"[repo] link rows for category={category}: {len(ids)}")
+    except Exception:
+        pass
     if not ids:
         return []
-    rows = (
-        db.from_("papers")
-        .select("paper_id, arxiv_id, title, authors, abstract, link, author_affiliation")
-        .in_("paper_id", ids)
-        .eq("update_date", date_str)
-        .order("arxiv_id")
-        .execute()
-        .data
-    )
+    # 分块查询papers，确保不会被单次请求上限影响
+    rows: List[Dict[str, Any]] = []
+    chunk_size = 100
+    for i in range(0, len(ids), chunk_size):
+        chunk = ids[i:i + chunk_size]
+        q_papers = (
+            db.from_("papers")
+            .select("paper_id, arxiv_id, title, authors, abstract, link, author_affiliation")
+            .in_("paper_id", chunk)
+            .eq("update_date", date_str)
+            .order("arxiv_id")
+        )
+        part = q_papers.range(0, len(chunk) - 1).execute().data
+        rows.extend(part)
+    try:
+        print(f"[repo] papers rows for date={date_str} after category filter: {len(rows)}")
+    except Exception:
+        pass
     # map to legacy articles structure
     articles: List[Dict[str, Any]] = []
     for idx, r in enumerate(rows, start=1):
