@@ -15,12 +15,7 @@ function displayAnalysisResults(articles) {
     const tableBody = document.getElementById('tableBody');
     tableBody.innerHTML = '';
 
-    // 检查是否有作者机构信息字段
-    const hasAffiliationData = articles.some(article => 
-        article.author_affiliation !== undefined && article.author_affiliation !== null && article.author_affiliation !== ""
-    );
-    
-    // 更新表头为分析结果格式，根据数据决定是否显示机构列
+    // 强制显示机构列（统一8列格式）
     const tableHead = document.querySelector('#arxivTable thead tr');
     let headerHTML = `
         <th class="number-cell">序号</th>
@@ -32,14 +27,9 @@ function displayAnalysisResults(articles) {
         <th class="details-cell">详细分析</th>
         <th>标题</th>
         <th class="authors-cell">作者</th>
+        <th class="affiliations-cell">作者机构</th>
+        <th class="abstract-cell">摘要</th>
     `;
-    
-    // 如果有机构数据，在作者后添加机构列
-    if (hasAffiliationData) {
-        headerHTML += `<th class="affiliations-cell">作者机构</th>`;
-    }
-    
-    headerHTML += `<th class="abstract-cell">摘要</th>`;
     
     tableHead.innerHTML = headerHTML;
 
@@ -211,11 +201,6 @@ function displaySortedResults(articles) {
     const tableBody = document.getElementById('tableBody');
     tableBody.innerHTML = '';
 
-    // 检查是否有机构数据
-    const hasAffiliationData = articles.some(article => 
-        article.author_affiliation !== undefined && article.author_affiliation !== null && article.author_affiliation !== ""
-    );
-
     articles.forEach((article, index) => {
         const row = document.createElement('tr');
         
@@ -322,10 +307,8 @@ function displaySortedResults(articles) {
             </td>
         `;
         
-        // 如果有机构数据，在作者后添加机构列
-        if (hasAffiliationData) {
-            rowHTML += renderAffiliationsCell(article.author_affiliation);
-        }
+        // 机构列：统一显示；若为空且通过筛选，提供“获取作者机构”按钮
+        rowHTML += renderAffiliationsCell(article.author_affiliation, article, index);
         
         // 添加摘要列（始终最后）
         rowHTML += `
@@ -373,14 +356,22 @@ function toggleAuthors(elementId) {
     }
 }
 
-function renderAffiliationsCell(affiliationData) {
+function renderAffiliationsCell(affiliationData, article, index) {
     /**
      * 渲染机构信息单元格
      */
     if (!affiliationData || affiliationData === "") {
-        return `<td class="affiliations-cell">
-            <div class="affiliations-empty">暂无机构信息</div>
-        </td>`;
+        // 若筛选通过但机构为空，提供按钮
+        try {
+            const parsed = JSON.parse(article.analysis_result || '{}');
+            if (parsed && parsed.pass_filter) {
+                // 与“查看链接”一致的样式
+                return `<td class="affiliations-cell">
+                    <div class="title-link"><a href="javascript:void(0)" onclick="fetchAffiliations(${article.paper_id}, '${article.link}', ${index})">获取作者机构</a></div>
+                </td>`;
+            }
+        } catch (e) {}
+        return `<td class="affiliations-cell"><div class="affiliations-empty">暂无机构信息</div></td>`;
     }
     
     try {
@@ -398,9 +389,7 @@ function renderAffiliationsCell(affiliationData) {
         }
         
         if (affiliations.length === 0) {
-            return `<td class="affiliations-cell">
-                <div class="affiliations-empty">未找到机构信息</div>
-            </td>`;
+        return `<td class="affiliations-cell"><div class="affiliations-empty">未找到机构信息</div></td>`;
         }
         
         // 构建机构列表HTML
@@ -422,8 +411,111 @@ function renderAffiliationsCell(affiliationData) {
         
     } catch (error) {
         console.error('解析机构信息失败:', error);
-        return `<td class="affiliations-cell">
-            <div class="affiliations-error">机构信息格式错误</div>
-        </td>`;
+        return `<td class="affiliations-cell"><div class="affiliations-error">机构信息格式错误</div></td>`;
+    }
+
+}
+
+// 点击"获取作者机构"按钮：调用后端/AI服务获取并回写
+async function fetchAffiliations(paperId, link, index) {
+    const buttonId = `affiliations-btn-${index}`;
+    const buttonSelector = `[onclick*="fetchAffiliations(${paperId}"]`;
+    
+    try {
+        // 立即显示loading状态
+        const buttonElement = document.querySelector(buttonSelector);
+        if (buttonElement) {
+            buttonElement.style.pointerEvents = 'none';
+            buttonElement.textContent = '获取中...';
+            buttonElement.style.color = '#999';
+        }
+        
+        // 显示全局loading
+        showOverlayLoading();
+        
+        console.log(`开始获取作者机构: paper_id=${paperId}, link=${link}`);
+        const startTime = Date.now();
+        
+        const resp = await fetch('/api/fetch_affiliations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ paper_id: paperId, link })
+        });
+        
+        const data = await resp.json();
+        const endTime = Date.now();
+        const elapsedSeconds = Math.round((endTime - startTime)/1000);
+        console.log(`获取作者机构完成，耗时: ${endTime - startTime}ms`, data);
+        
+        if (resp.ok) {
+            if (data.success) {
+                // 成功获取机构信息
+                updateSingleRowAffiliation(index, data.affiliations);
+                showSuccess(`已更新作者机构 (耗时 ${elapsedSeconds}s)`);
+            } else {
+                // API调用成功但未获取到机构信息
+                console.warn('未获取到机构信息:', data.error);
+                updateSingleRowAffiliation(index, []); // 显示空机构信息
+                showError(data.error || '未获取到机构信息');
+            }
+        } else {
+            // HTTP错误
+            showError(data.error || '获取作者机构失败');
+        }
+    } catch (e) {
+        showError('网络错误，获取作者机构失败');
+        console.error(e);
+    } finally {
+        // 恢复按钮状态
+        const buttonElement = document.querySelector(buttonSelector);
+        if (buttonElement) {
+            buttonElement.style.pointerEvents = 'auto';
+            buttonElement.style.color = '';
+        }
+        hideOverlayLoading();
     }
 }
+
+// 更新单行的机构信息，避免重新加载整个表格
+function updateSingleRowAffiliation(rowIndex, affiliations) {
+    const tableBody = document.getElementById('tableBody');
+    if (!tableBody) {
+        console.error('找不到tableBody元素');
+        return;
+    }
+    
+    const rows = tableBody.querySelectorAll('tr');
+    if (rowIndex >= rows.length) {
+        console.error(`行索引${rowIndex}超出范围，共${rows.length}行`);
+        return;
+    }
+    
+    const targetRow = rows[rowIndex];
+    const affiliationCell = targetRow.querySelector('.affiliations-cell');
+    if (!affiliationCell) return;
+    
+    // 构建机构信息HTML
+    if (affiliations && affiliations.length > 0) {
+        const affiliationsHTML = affiliations.map((affiliation, index) => 
+            `<div class="affiliation-item" title="${affiliation}">
+                <span class="affiliation-number">${index + 1}.</span>
+                <span class="affiliation-text">${affiliation}</span>
+            </div>`
+        ).join('');
+        
+        affiliationCell.innerHTML = `
+            <div class="affiliations-content">
+                <div class="affiliations-count">${affiliations.length} 个机构</div>
+                <div class="affiliations-list">
+                    ${affiliationsHTML}
+                </div>
+            </div>
+        `;
+    } else {
+        // 空机构信息，但不再显示"获取作者机构"按钮
+        affiliationCell.innerHTML = '<div class="affiliations-empty">未找到机构信息</div>';
+    }
+}
+
+// 确保函数在全局作用域可用
+window.fetchAffiliations = fetchAffiliations;

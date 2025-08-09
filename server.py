@@ -643,6 +643,20 @@ def run_db_analysis_task(task_id, pending_papers, selected_date, selected_catego
                     created_by=None,
                 )
 
+                # 若通过筛选且 paper 中机构信息为空，自动补充作者机构并写回 papers.author_affiliation
+                try:
+                    pass_filter = bool(ar.get('pass_filter'))
+                    has_aff = bool(paper.get('author_affiliation'))
+                    if pass_filter and not has_aff:
+                        from parse_author_affli_from_doubao import get_author_affiliations
+                        affiliations = get_author_affiliations(paper['link'])
+                        if affiliations:
+                            import json as _json
+                            aff_json = _json.dumps(affiliations, ensure_ascii=False)
+                            db_repo.update_paper_author_affiliation(paper['paper_id'], aff_json)
+                except Exception as _aff_e:
+                    print(f"获取/写入作者机构失败: {_aff_e}")
+
                 success_count += 1
                 elapsed = time.time() - start_time
                 print(f"✅ DB分析 {i+1}/{len(pending_papers)} 完成，耗时: {elapsed:.2f}s")
@@ -745,6 +759,39 @@ def analysis_progress_stream():
             print(f"SSE stream timeout for task_id: {task_id}", file=sys.stderr)
     
     return Response(generate(task_id), mimetype='text/event-stream')
+
+@app.route('/api/fetch_affiliations', methods=['POST'])
+def fetch_affiliations_api():
+    try:
+        data = request.get_json()
+        paper_id = data.get('paper_id')
+        link = data.get('link')
+        if not paper_id or not link:
+            return jsonify({'error': '缺少paper_id或link'}), 400
+        
+        print(f"[API] 开始获取作者机构: paper_id={paper_id}, link={link}")
+        
+        from parse_author_affli_from_doubao import get_author_affiliations
+        aff = get_author_affiliations(link, use_cache=False)  # 强制不使用缓存
+        
+        if aff and len(aff) > 0:
+            import json as _json
+            aff_json = _json.dumps(aff, ensure_ascii=False)
+            db_repo.update_paper_author_affiliation(int(paper_id), aff_json)
+            print(f"[API] ✅ 成功获取并写入数据库: {len(aff)} 个机构")
+            return jsonify({'success': True, 'affiliations': aff})
+        else:
+            print(f"[API] ⚠️ 未获取到机构信息")
+            return jsonify({'success': False, 'error': '未获取到机构信息', 'affiliations': []}), 200
+    except Exception as e:
+        error_msg = str(e)
+        print(f"[API] ❌ 获取机构失败: {error_msg}")
+        
+        # 对于文件过大等错误，返回具体错误信息
+        if "过大" in error_msg or "限制" in error_msg:
+            return jsonify({'success': False, 'error': f'文件过大，无法处理: {error_msg}', 'affiliations': []}), 200
+        else:
+            return jsonify({'error': error_msg}), 500
 
 @app.route('/api/get_analysis_results', methods=['POST'])
 def get_analysis_results():
@@ -907,6 +954,13 @@ if __name__ == '__main__':
     # 正确处理Render的PORT环境变量
     port = int(os.getenv('PORT', 8080))  # Render注入PORT环境变量，本地默认8080
     host = '0.0.0.0'  # 必须绑定到所有接口，不能用localhost
+    
+    # 清空机构信息缓存
+    try:
+        from parse_author_affli_from_doubao import clear_affiliation_cache
+        clear_affiliation_cache()
+    except:
+        pass
     
     print("启动Arxiv文章初筛小助手服务器...")
     print(f"环境PORT变量: {os.getenv('PORT', 'None (使用默认8080)')}")

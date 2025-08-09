@@ -339,6 +339,7 @@ def get_analysis_results(
             continue
         articles.append({
             "number": len(articles) + 1,
+            "paper_id": p.get("paper_id"),
             "analysis_result": json.dumps(row["analysis_result"], ensure_ascii=False, separators=(",", ":")),
             "title": p.get("title", ""),
             "authors": p.get("authors", ""),

@@ -17,6 +17,20 @@ function hideLoading() {
     if (overlay) overlay.style.display = 'none';
 }
 
+function showOverlayLoading() {
+    const overlay = document.getElementById('overlayLoading');
+    if (overlay) {
+        overlay.style.display = 'flex';
+    }
+}
+
+function hideOverlayLoading() {
+    const overlay = document.getElementById('overlayLoading');
+    if (overlay) {
+        overlay.style.display = 'none';
+    }
+}
+
 function showError(message) {
     hideLoading();
     // 隐藏成功消息
