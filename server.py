@@ -777,40 +777,7 @@ def get_analysis_results():
         except Exception as e:
             print(f"从DB读取分析结果失败: {e}")
 
-        # 兼容旧逻辑：若DB无结果，尝试旧的markdown文件以不影响历史
-        filename = (
-            f"{selected_date}-{selected_category}-analysis-top5.md" if selected_range == 'top5' else
-            f"{selected_date}-{selected_category}-analysis-top10.md" if selected_range == 'top10' else
-            f"{selected_date}-{selected_category}-analysis-top20.md" if selected_range == 'top20' else
-            f"{selected_date}-{selected_category}-analysis.md"
-        )
-        fail_filename = (
-            f"{selected_date}-{selected_category}-analysis-top5-fail.md" if selected_range == 'top5' else
-            f"{selected_date}-{selected_category}-analysis-top10-fail.md" if selected_range == 'top10' else
-            f"{selected_date}-{selected_category}-analysis-top20-fail.md" if selected_range == 'top20' else
-            f"{selected_date}-{selected_category}-analysis-fail.md"
-        )
-        filepath = os.path.join('log', filename)
-        fail_filepath = os.path.join('log', fail_filename)
-
-        if os.path.exists(fail_filepath):
-            fail_info = parse_analysis_fail_file(fail_filepath)
-            return jsonify({
-                'success': False,
-                'is_analysis_failed': True,
-                'fail_info': fail_info,
-                'date': selected_date,
-                'category': selected_category,
-                'range_type': selected_range
-            })
-
-        if not os.path.exists(filepath):
-            return jsonify({'error': f'未找到 {selected_date} 的 {selected_category} {selected_range} 分析结果'}), 404
-
-        articles = parse_analysis_markdown_file(filepath)
-        if len(articles) == 0:
-            return jsonify({'error': f'分析结果为空'}), 404
-        return jsonify({'success': True, 'articles': articles, 'total': len(articles), 'date': selected_date, 'category': selected_category, 'range_type': selected_range})
+        return jsonify({'success': True, 'articles': [], 'total': 0, 'date': selected_date, 'category': selected_category, 'range_type': selected_range})
         
     except Exception as e:
         return jsonify({'error': f'服务器错误: {str(e)}'}), 500
@@ -920,29 +887,7 @@ def parse_analysis_markdown_file(filepath):
 def get_available_dates():
     """获取可用的日期列表"""
     try:
-        use_db_read = os.getenv('USE_DB_READ', 'false').lower() == 'true'
-        if use_db_read:
-            try:
-                dates = db_repo.list_available_dates()
-                return jsonify({'dates': dates})
-            except Exception as e:
-                print(f"从DB读取日期失败，降级到文件: {e}")
-
-        log_dir = 'log'
-        if not os.path.exists(log_dir):
-            return jsonify({'dates': []})
-
-        dates = []
-        for filename in os.listdir(log_dir):
-            if filename.endswith('-result.md'):
-                date_part = filename.replace('-result.md', '')
-                try:
-                    datetime.strptime(date_part, '%Y-%m-%d')
-                    dates.append(date_part)
-                except ValueError:
-                    continue
-
-        dates.sort(reverse=True)
+        dates = db_repo.list_available_dates()
         return jsonify({'dates': dates})
         
     except Exception as e:
