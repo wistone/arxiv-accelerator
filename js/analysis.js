@@ -54,6 +54,44 @@ async function analyzeArticles() {
             const analyzeBtn = document.getElementById('analyzeBtn');
             if (analyzeBtn) analyzeBtn.disabled = false; // 打开弹窗后允许再次点击
 
+            // 动态裁剪下拉选项：若 completed 已超过某范围，则移除较小范围
+            const testCountSelect = document.getElementById('testCount');
+            if (testCountSelect) {
+                const optionsMap = [
+                    {value: '5', threshold: 5},
+                    {value: '10', threshold: 10},
+                    {value: '20', threshold: 20}
+                ];
+                optionsMap.forEach(({value, threshold}) => {
+                    const opt = Array.from(testCountSelect.options).find(o => o.value === value);
+                    if (opt) {
+                        if (data.completed >= threshold) {
+                            // 已经达到/超过该范围，则隐藏该项
+                            opt.disabled = true;
+                            opt.style.display = 'none';
+                        } else {
+                            opt.disabled = false;
+                            opt.style.display = '';
+                        }
+                    }
+                });
+                // 如果 5/10/20 都不可用，则仅保留“全部分析”
+                const smallOptionsHidden = ['5','10','20'].every(v => {
+                    const opt = Array.from(testCountSelect.options).find(o => o.value === v);
+                    return opt && opt.disabled;
+                });
+                if (smallOptionsHidden) {
+                    testCountSelect.value = '';
+                } else {
+                    // 选择第一个可用的小范围，避免误触全量
+                    const firstAvail = ['5','10','20'].find(v => {
+                        const opt = Array.from(testCountSelect.options).find(o => o.value === v);
+                        return opt && !opt.disabled;
+                    });
+                    if (firstAvail) testCountSelect.value = firstAvail;
+                }
+            }
+
             // 显示弹窗与选项
             document.getElementById('analysisModal').style.display = 'block';
             document.getElementById('testOptions').style.display = 'block';

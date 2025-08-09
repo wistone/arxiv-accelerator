@@ -28,10 +28,22 @@
 
 /* 弹窗内：范围选择 + 两个按钮 同一行 */
 .test-options-row {
-  display: grid;
-  grid-template-columns: auto 180px 1fr 1fr;
+  display: flex;
   align-items: center;
   gap: 12px;
+}
+.test-options-row label { white-space: nowrap; }
+.test-options-row select#testCount { width: 200px; height: 44px; }
+
+/* 弹窗内两个操作按钮：不等宽，但高度统一 */
+#startAnalysisBtn,
+#showExistingBtn {
+  min-width: 160px;
+  height: 48px;
+  padding: 10px 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* 统一按钮颜色：可点紫色，不可点灰色 */
