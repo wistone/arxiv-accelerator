@@ -37,6 +37,8 @@ create table if not exists app.papers (
 );
 
 create index if not exists idx_papers_update_date on app.papers(update_date);
+-- 复合索引：加速按日期过滤并通过paper_id回表/连接
+create index if not exists idx_papers_update_date_paper on app.papers(update_date, paper_id);
 
 -- 5) paper_categories (many-to-many)
 create table if not exists app.paper_categories (
@@ -46,6 +48,8 @@ create table if not exists app.paper_categories (
 );
 
 create index if not exists idx_paper_categories_category on app.paper_categories(category_id);
+-- 复合索引：加速按category_id过滤并连接papers(paper_id)
+create index if not exists idx_paper_categories_category_paper on app.paper_categories(category_id, paper_id);
 
 -- 6) analysis_results
 create table if not exists app.analysis_results (

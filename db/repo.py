@@ -111,52 +111,67 @@ def link_paper_category(paper_id: int, category_name: str) -> None:
 def list_papers_by_date_category(date: str | dt.date, category: str) -> List[Dict[str, Any]]:
     db = app_schema()
     date_str = _ensure_date(date)
-    # join papers with categories via link (two-phase query because postgrest client lacks join)
-    # Since supabase-py does not provide join, use SQL via postgrest rpc: emulate with filter + in
-    # First, find paper_ids in this category
-    # 注意：postgrest 若未指定范围，可能只返回前10条。这里显式扩大limit。
+    # 优先走一次请求的内联JOIN查询（通过外键自动关系），显著减少网络往返
     category_id = upsert_category(category)
-    # 分页拉取所有关联paper_id，避免任何默认分页影响
-    ids: List[int] = []
-    page_size = 200
-    offset = 0
-    while True:
-        q_link = (
+    try:
+        joined_rows = (
             db.from_("paper_categories")
-            .select("paper_id")
+            .select("papers!inner(paper_id, arxiv_id, title, authors, abstract, link, author_affiliation)")
             .eq("category_id", category_id)
+            .eq("papers.update_date", date_str)
+            .order("arxiv_id", foreign_table="papers")
+            .limit(5000)
+            .limit(5000, foreign_table="papers")
+            .execute()
+            .data
         )
-        batch = q_link.range(offset, offset + page_size - 1).execute().data
-        if not batch:
-            break
-        ids.extend([row["paper_id"] for row in batch])
-        offset += page_size
-        if len(batch) < page_size:
-            break
-    try:
-        print(f"[repo] link rows for category={category}: {len(ids)}")
-    except Exception:
-        pass
-    if not ids:
-        return []
-    # 分块查询papers，确保不会被单次请求上限影响
-    rows: List[Dict[str, Any]] = []
-    chunk_size = 100
-    for i in range(0, len(ids), chunk_size):
-        chunk = ids[i:i + chunk_size]
-        q_papers = (
-            db.from_("papers")
-            .select("paper_id, arxiv_id, title, authors, abstract, link, author_affiliation")
-            .in_("paper_id", chunk)
-            .eq("update_date", date_str)
-            .order("arxiv_id")
-        )
-        part = q_papers.range(0, len(chunk) - 1).execute().data
-        rows.extend(part)
-    try:
-        print(f"[repo] papers rows for date={date_str} after category filter: {len(rows)}")
-    except Exception:
-        pass
+        rows: List[Dict[str, Any]] = []
+        for r in joined_rows:
+            p = r.get("papers") or {}
+            if p:
+                rows.append(p)
+        # 调试日志
+        try:
+            print(f"[repo] fast-join rows for date={date_str}, category={category}: {len(rows)}")
+        except Exception:
+            pass
+    except Exception as _join_err:
+        # 回退方案：分页取关联 + 分块查papers（较慢，但保证可用）
+        ids: List[int] = []
+        page_size = 500
+        offset = 0
+        while True:
+            q_link = (
+                db.from_("paper_categories")
+                .select("paper_id")
+                .eq("category_id", category_id)
+            )
+            batch = q_link.range(offset, offset + page_size - 1).execute().data
+            if not batch:
+                break
+            ids.extend([row["paper_id"] for row in batch])
+            offset += page_size
+            if len(batch) < page_size:
+                break
+        if not ids:
+            return []
+        rows = []
+        chunk_size = 500
+        for i in range(0, len(ids), chunk_size):
+            chunk = ids[i:i + chunk_size]
+            q_papers = (
+                db.from_("papers")
+                .select("paper_id, arxiv_id, title, authors, abstract, link, author_affiliation")
+                .in_("paper_id", chunk)
+                .eq("update_date", date_str)
+                .order("arxiv_id")
+            )
+            part = q_papers.range(0, len(chunk) - 1).execute().data
+            rows.extend(part)
+        try:
+            print(f"[repo] fallback rows for date={date_str}, category={category}: {len(rows)}")
+        except Exception:
+            pass
     # map to legacy articles structure
     articles: List[Dict[str, Any]] = []
     for idx, r in enumerate(rows, start=1):
