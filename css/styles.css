@@ -1,3 +1,66 @@
+/* 全局遮罩 Loading */
+.overlay-loading {
+  position: fixed;
+  inset: 0;
+  background: rgba(255,255,255,0.85);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+.overlay-loading .spinner {
+  width: 56px;
+  height: 56px;
+  border: 6px solid #e9e9ee;
+  border-top-color: #6c63ff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+.overlay-loading .loading-text {
+  margin-top: 16px;
+  color: #5c6670;
+  font-size: 20px;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 弹窗内：范围选择 + 两个按钮 同一行 */
+.test-options-row {
+  display: grid;
+  grid-template-columns: auto 180px 1fr 1fr;
+  align-items: center;
+  gap: 12px;
+}
+
+/* 统一按钮颜色：可点紫色，不可点灰色 */
+.btn.btn-primary,
+.button-group .btn,
+.controls .btn {
+  background: linear-gradient(135deg, #7e6bff, #7e6bff);
+  color: #fff;
+  border: none;
+}
+.btn.btn-primary:hover,
+.button-group .btn:hover,
+.controls .btn:hover { opacity: 0.95; }
+.btn.btn-primary.disabled, .btn.btn-primary:disabled {
+  background: #9aa0a6;
+  cursor: not-allowed;
+}
+
+/* 分析主按钮在可点时不变灰 */
+#analyzeBtn.btn.btn-primary:hover:enabled {
+  background: linear-gradient(135deg, #7e6bff, #7e6bff);
+}
+
+
+.analysis-status {
+  margin-top: 10px;
+  font-size: 14px;
+  color: #666;
+}
 /* Arxiv文章初筛小助手 - 主样式表 */
 
 * {

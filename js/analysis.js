@@ -45,12 +45,14 @@ async function analyzeArticles() {
             // 渲染“已分析 n/total”
             const analysisStatus = document.getElementById('analysisStatus');
             if (analysisStatus) {
-                analysisStatus.innerHTML = `已分析 ${data.completed} / ${data.total}`;
+                analysisStatus.innerHTML = `已完成分析 ${data.completed} 篇文章 / 共 ${data.total} 篇文章`;
             }
 
             // 更新“开始分析”按钮状态
             const startBtn = document.getElementById('startAnalysisBtn') || document.getElementById('analyzeBtn');
             if (startBtn) startBtn.disabled = !!data.all_analyzed;
+            const analyzeBtn = document.getElementById('analyzeBtn');
+            if (analyzeBtn) analyzeBtn.disabled = false; // 打开弹窗后允许再次点击
 
             // 显示弹窗与选项
             document.getElementById('analysisModal').style.display = 'block';
@@ -164,6 +166,8 @@ async function startNewAnalysis(selectedDate, selectedCategory, selectedRange, t
     
     try {
         setButtonLoading('startAnalysisBtn', true, '启动中...');
+        const overlay = document.getElementById('overlayLoading');
+        if (overlay) overlay.style.display = 'flex';
         const response = await fetch('/api/analyze_papers', {
             method: 'POST',
             headers: {
@@ -189,6 +193,8 @@ async function startNewAnalysis(selectedDate, selectedCategory, selectedRange, t
         console.error('分析错误:', error);
     } finally {
         setButtonLoading('startAnalysisBtn', false);
+        const overlay = document.getElementById('overlayLoading');
+        if (overlay) overlay.style.display = 'none';
     }
 }
 
@@ -213,6 +219,8 @@ async function loadAnalysisResults(rangeTypeToLoad = 'full') {
     
     try {
         setButtonLoading('showExistingBtn', true, '加载中...');
+        const overlay = document.getElementById('overlayLoading');
+        if (overlay) overlay.style.display = 'flex';
         const response = await fetch('/api/get_analysis_results', {
             method: 'POST',
             headers: {
@@ -247,6 +255,8 @@ async function loadAnalysisResults(rangeTypeToLoad = 'full') {
         console.error('加载分析结果错误:', error);
     } finally {
         setButtonLoading('showExistingBtn', false);
+        const overlay = document.getElementById('overlayLoading');
+        if (overlay) overlay.style.display = 'none';
     }
 }
 

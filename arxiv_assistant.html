@@ -42,7 +42,7 @@
                 <button class="btn btn-primary" onclick="searchArticles()">
                     🔍 搜索文章列表
                 </button>
-                <button class="btn btn-secondary" id="analyzeBtn" onclick="analyzeArticlesImproved()" disabled>
+                <button class="btn btn-primary" id="analyzeBtn" onclick="analyzeArticlesImproved()" disabled>
                     📊 分析
                 </button>
             </div>
@@ -93,20 +93,22 @@
             
             <!-- 测试模式选项 -->
             <div class="test-options" id="testOptions">
-                <label for="testCount">🧪 分析范围选择:</label>
-                <select id="testCount">
-                    <option value="">全部分析</option>
-                    <option value="5">仅前5篇</option>
-                    <option value="10">仅前10篇</option>
-                    <option value="20">仅前20篇</option>
-                </select>
-                <button class="btn btn-primary" id="startAnalysisBtn" onclick="startAnalysis()" style="margin-left: 15px;">
-                    开始分析
-                </button>
-                <button class="btn btn-secondary" id="showExistingBtn" style="margin-left: 10px; display: none;">
-                    加载并展示
-                </button>
-                <div id="analysisStatus" style="margin-top: 10px; font-size: 14px; color: #666;"></div>
+                <div class="test-options-row">
+                    <label for="testCount">🧪 分析范围选择:</label>
+                    <select id="testCount">
+                        <option value="">全部分析</option>
+                        <option value="5">仅前5篇</option>
+                        <option value="10">仅前10篇</option>
+                        <option value="20">仅前20篇</option>
+                    </select>
+                    <button class="btn btn-primary" id="startAnalysisBtn" onclick="startAnalysis()">
+                        开始分析
+                    </button>
+                    <button class="btn btn-primary" id="showExistingBtn" style="display: none;">
+                        加载并展示
+                    </button>
+                </div>
+                <div id="analysisStatus" class="analysis-status"></div>
             </div>
             
             <!-- 进度条 -->
@@ -131,6 +133,12 @@
                 <p id="summaryText">分析汇总将在这里显示...</p>
             </div>
         </div>
+    </div>
+
+    <!-- 全局遮罩式 Loading -->
+    <div id="overlayLoading" class="overlay-loading" style="display:none;">
+        <div class="spinner"></div>
+        <div class="loading-text">正在加载数据...</div>
     </div>
 
 

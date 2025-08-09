@@ -3,6 +3,7 @@
  */
 
 function showLoading() {
+    // 页面局部loading
     document.getElementById('loading').style.display = 'block';
     document.getElementById('error').style.display = 'none';
     document.getElementById('success').style.display = 'none';
@@ -12,6 +13,8 @@ function showLoading() {
 
 function hideLoading() {
     document.getElementById('loading').style.display = 'none';
+    const overlay = document.getElementById('overlayLoading');
+    if (overlay) overlay.style.display = 'none';
 }
 
 function showError(message) {
