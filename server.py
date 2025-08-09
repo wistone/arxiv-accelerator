@@ -240,123 +240,84 @@ def analyze_articles_data(articles):
 
 @app.route('/api/check_analysis_exists', methods=['POST'])
 def check_analysis_exists():
-    """检查分析结果文件是否已存在"""
+    """检查数据库中分析完成的进度（按固定 prompt）。"""
     try:
         data = request.get_json()
         selected_date = data.get('date')
         selected_category = data.get('category', 'cs.CV')
-        
         if not selected_date:
             return jsonify({'error': '请选择日期'}), 400
-        
-        # 检查所有可能的分析文件
-        possible_files = [
-            f"{selected_date}-{selected_category}-analysis.md",  # 全部分析
-            f"{selected_date}-{selected_category}-analysis-top20.md",  # 前20篇
-            f"{selected_date}-{selected_category}-analysis-top10.md",  # 前10篇
-            f"{selected_date}-{selected_category}-analysis-top5.md",   # 前5篇
-        ]
-        
-        existing_files = []
-        for filename in possible_files:
-            filepath = os.path.join('log', filename)
-            if os.path.exists(filepath):
-                # 根据文件名确定分析范围
-                if 'top5' in filename:
-                    range_type = 'top5'
-                    range_desc = '前5篇'
-                    test_count = 5
-                elif 'top10' in filename:
-                    range_type = 'top10'
-                    range_desc = '前10篇'
-                    test_count = 10
-                elif 'top20' in filename:
-                    range_type = 'top20'
-                    range_desc = '前20篇'
-                    test_count = 20
-                else:
-                    range_type = 'full'
-                    range_desc = '全部分析'
-                    test_count = None
-                
-                existing_files.append({
-                    'filename': filename,
-                    'filepath': filepath,
-                    'range_type': range_type,
-                    'range_desc': range_desc,
-                    'test_count': test_count
-                })
-        
-        # 按优先级排序：全部分析 > 前20篇 > 前10篇 > 前5篇
-        existing_files.sort(key=lambda x: {
-            'full': 0, 'top20': 1, 'top10': 2, 'top5': 3
-        }[x['range_type']])
-        
-        # 确定可用的分析选项
-        available_options = []
-        if existing_files:
-            best_file = existing_files[0]
-            best_range = best_file['range_type']
-            
-            # 根据最佳文件确定可用的选项
-            if best_range == 'full':
-                # 有全部分析，只能选择全部分析
-                available_options = ['full']
-            elif best_range == 'top20':
-                # 有前20篇分析，可以选择前20篇或重新生成全部分析
-                available_options = ['top20', 'full']
-            elif best_range == 'top10':
-                # 有前10篇分析，可以选择前10篇、前20篇或重新生成全部分析
-                available_options = ['top10', 'top20', 'full']
-            elif best_range == 'top5':
-                # 有前5篇分析，可以选择前5篇、前10篇、前20篇或重新生成全部分析
-                available_options = ['top5', 'top10', 'top20', 'full']
-        
-        return jsonify({
-            'exists': len(existing_files) > 0,
-            'existing_files': existing_files,
-            'best_file': existing_files[0] if existing_files else None,
-            'available_options': available_options
-        })
-        
+
+        # 固定 prompt：优先按名称 multi-modal-llm 找到 UUID
+        prompt_id = db_repo.get_prompt_id_by_name('multi-modal-llm')
+        if not prompt_id:
+            return jsonify({'error': '缺少 prompt: multi-modal-llm'}), 500
+
+        status = db_repo.get_analysis_status(selected_date, selected_category, prompt_id)
+        resp = {
+            'exists': status['completed'] > 0,
+            'total': status['total'],
+            'completed': status['completed'],
+            'pending': status['pending'],
+            'all_analyzed': status['completed'] >= status['total'] and status['total'] > 0
+        }
+        return jsonify(resp)
     except Exception as e:
-        return jsonify({'error': f'检查文件失败: {str(e)}'}), 500
+        return jsonify({'error': f'检查进度失败: {str(e)}'}), 500
 
 @app.route('/api/analyze_papers', methods=['POST'])
 def analyze_papers():
-    """启动论文分析"""
+    """启动论文分析（仅对未分析的 paper，补齐到指定数量）。"""
     try:
         data = request.get_json()
         selected_date = data.get('date')
         selected_category = data.get('category', 'cs.CV')
-        test_count = data.get('test_count')
-        
+        range_type = data.get('range_type', 'full')
+
         if not selected_date:
             return jsonify({'error': '请选择日期'}), 400
-        
-        use_db_read = os.getenv('USE_DB_READ', 'false').lower() == 'true'
-        use_db_write = os.getenv('USE_DB_WRITE', 'false').lower() == 'true'
 
-        # 构建输入文件路径
-        filename = f"{selected_date}-{selected_category}-result.md"
-        filepath = os.path.join('log', filename)
-        
-        if not os.path.exists(filepath):
-            return jsonify({'error': f'未找到 {selected_date} 的 {selected_category} 数据文件'}), 404
-        
-        # 创建分析任务ID
+        # prompt: multi-modal-llm
+        prompt_id = db_repo.get_prompt_id_by_name('multi-modal-llm')
+        if not prompt_id:
+            return jsonify({'error': '缺少 prompt: multi-modal-llm'}), 500
+
+        # 任务互斥：如已存在同日同类任务，直接返回当前进度
         task_id = f"{selected_date}-{selected_category}"
-        
-        # 启动后台分析任务
+        with analysis_lock:
+            if analysis_progress.get(task_id, {}).get('status') in ('starting','processing'):
+                return jsonify({'success': True, 'task_id': task_id, 'message': '已有任务在运行，返回其进度'}), 200
+
+        # 计算目标数量与补齐需求
+        target_map = {'top5': 5, 'top10': 10, 'top20': 20}
+        target_n = target_map.get(range_type)
+
+        status = db_repo.get_analysis_status(selected_date, selected_category, prompt_id)
+        if target_n is not None:
+            if status['completed'] >= target_n:
+                return jsonify({'success': True, 'task_id': task_id, 'message': '已达到目标数量，无需再次分析'}), 200
+            need = target_n - status['completed']
+        else:
+            # full：对全部 pending
+            need = status['pending']
+
+        if need <= 0:
+            return jsonify({'success': True, 'task_id': task_id, 'message': '无需分析'}), 200
+
+        # 仅筛选未分析的论文，遵循顺序与搜索一致
+        pending = db_repo.list_unanalyzed_papers(selected_date, selected_category, prompt_id, limit=need)
+        if not pending:
+            return jsonify({'success': True, 'task_id': task_id, 'message': '无待分析论文'}), 200
+
+        # 启动后台分析任务（DB源），不再读取 markdown
         thread = threading.Thread(
-            target=run_analysis_task,
-            args=(task_id, filepath, selected_date, selected_category, test_count)
+            target=run_db_analysis_task,
+            args=(task_id, pending, selected_date, selected_category, prompt_id)
         )
         thread.daemon = True
         thread.start()
-        
-        return jsonify({'success': True, 'task_id': task_id})
-        
+
+        return jsonify({'success': True, 'task_id': task_id, 'message': f'启动分析，共 {len(pending)} 篇'})
     except Exception as e:
         return jsonify({'error': f'启动分析失败: {str(e)}'}), 500
 
@@ -622,6 +583,90 @@ def run_analysis_task(task_id, input_file, selected_date, selected_category, tes
             analysis_progress[task_id]['status'] = 'error'
             analysis_progress[task_id]['error'] = error_msg
 
+def run_db_analysis_task(task_id, pending_papers, selected_date, selected_category, prompt_id):
+    """基于数据库待分析集合的后台任务。仅对未分析论文调用模型并写入DB。"""
+    import sys
+    try:
+        with analysis_lock:
+            analysis_progress[task_id] = {
+                'current': 0,
+                'total': len(pending_papers),
+                'status': 'processing',
+                'paper': None,
+                'analysis_result': None
+            }
+
+        # 读取system prompt
+        system_prompt_file = "prompt/system_prompt.md"
+        if not os.path.exists(system_prompt_file):
+            raise Exception("system_prompt.md文件不存在")
+        with open(system_prompt_file, 'r', encoding='utf-8') as f:
+            system_prompt = f.read().strip()
+
+        # 初始化豆包客户端
+        print(f"📡 初始化豆包客户端... 🔍 Task ID: {task_id}")
+        client = DoubaoClient()
+        print(f"✅ 豆包客户端初始化成功 - DB 源分析")
+
+        success_count = 0
+        error_count = 0
+
+        for i, m in enumerate(pending_papers):
+            paper = {
+                'paper_id': m['paper_id'],
+                'title': m.get('title',''),
+                'abstract': m.get('abstract',''),
+                'authors': m.get('authors',''),
+                'link': m.get('link',''),
+                'author_affiliation': m.get('author_affiliation','')
+            }
+            try:
+                with analysis_lock:
+                    analysis_progress[task_id]['current'] = i + 1
+                    analysis_progress[task_id]['paper'] = paper
+                    analysis_progress[task_id]['analysis_result'] = None
+
+                start_time = time.time()
+                result = analyze_paper(client, system_prompt, paper['title'], paper['abstract'])
+
+                # 序列化结果并写库（幂等：唯一键保证）
+                try:
+                    import json as _json
+                    ar = _json.loads(result)
+                except Exception:
+                    ar = { 'raw': result }
+
+                db_repo.insert_analysis_result(
+                    paper_id=paper['paper_id'],
+                    prompt_id=prompt_id,
+                    analysis_json=ar,
+                    created_by=None,
+                )
+
+                success_count += 1
+                elapsed = time.time() - start_time
+                print(f"✅ DB分析 {i+1}/{len(pending_papers)} 完成，耗时: {elapsed:.2f}s")
+
+                with analysis_lock:
+                    analysis_progress[task_id]['analysis_result'] = result
+                    analysis_progress[task_id]['success_count'] = success_count
+                    analysis_progress[task_id]['error_count'] = error_count
+            except Exception as e:
+                error_count += 1
+                print(f"❌ DB分析异常: {e}")
+                with analysis_lock:
+                    analysis_progress[task_id]['error_count'] = error_count
+                continue
+
+        with analysis_lock:
+            analysis_progress[task_id]['status'] = 'completed'
+            analysis_progress[task_id]['final_success_count'] = success_count
+            analysis_progress[task_id]['final_error_count'] = error_count
+    except Exception as e:
+        print(f"❌ run_db_analysis_task 失败: {e}")
+        with analysis_lock:
+            analysis_progress[task_id]['status'] = 'error'
+            analysis_progress[task_id]['error'] = str(e)
 @app.route('/api/analysis_progress')
 def analysis_progress_stream():
     """Server-Sent Events流，用于实时获取分析进度"""
@@ -713,28 +758,42 @@ def get_analysis_results():
         if not selected_date:
             return jsonify({'error': '请选择日期'}), 400
         
-        use_db_read = os.getenv('USE_DB_READ', 'false').lower() == 'true'
+        # 直接从DB返回分析结果（优先且默认）
+        try:
+            prompt_id = db_repo.get_prompt_id_by_name("multi-modal-llm") or db_repo.get_prompt_id_by_name("system_default")
+            if not prompt_id:
+                return jsonify({'error': '缺少 prompt: multi-modal-llm'}), 500
+            limit = 5 if selected_range == 'top5' else 10 if selected_range == 'top10' else 20 if selected_range == 'top20' else None
+            articles = db_repo.get_analysis_results(date=selected_date, category=selected_category, prompt_id=prompt_id, limit=limit)
+            if len(articles) > 0:
+                return jsonify({
+                    'success': True,
+                    'articles': articles,
+                    'total': len(articles),
+                    'date': selected_date,
+                    'category': selected_category,
+                    'range_type': selected_range
+                })
+        except Exception as e:
+            print(f"从DB读取分析结果失败: {e}")
 
-        # 根据选择的范围构建分析结果文件路径（文件分支保留以兼容旧逻辑）
-        if selected_range == 'top5':
-            filename = f"{selected_date}-{selected_category}-analysis-top5.md"
-            fail_filename = f"{selected_date}-{selected_category}-analysis-top5-fail.md"
-        elif selected_range == 'top10':
-            filename = f"{selected_date}-{selected_category}-analysis-top10.md"
-            fail_filename = f"{selected_date}-{selected_category}-analysis-top10-fail.md"
-        elif selected_range == 'top20':
-            filename = f"{selected_date}-{selected_category}-analysis-top20.md"
-            fail_filename = f"{selected_date}-{selected_category}-analysis-top20-fail.md"
-        else:
-            filename = f"{selected_date}-{selected_category}-analysis.md"
-            fail_filename = f"{selected_date}-{selected_category}-analysis-fail.md"
-        
+        # 兼容旧逻辑：若DB无结果，尝试旧的markdown文件以不影响历史
+        filename = (
+            f"{selected_date}-{selected_category}-analysis-top5.md" if selected_range == 'top5' else
+            f"{selected_date}-{selected_category}-analysis-top10.md" if selected_range == 'top10' else
+            f"{selected_date}-{selected_category}-analysis-top20.md" if selected_range == 'top20' else
+            f"{selected_date}-{selected_category}-analysis.md"
+        )
+        fail_filename = (
+            f"{selected_date}-{selected_category}-analysis-top5-fail.md" if selected_range == 'top5' else
+            f"{selected_date}-{selected_category}-analysis-top10-fail.md" if selected_range == 'top10' else
+            f"{selected_date}-{selected_category}-analysis-top20-fail.md" if selected_range == 'top20' else
+            f"{selected_date}-{selected_category}-analysis-fail.md"
+        )
         filepath = os.path.join('log', filename)
         fail_filepath = os.path.join('log', fail_filename)
-        
-        # 先检查是否存在失败文件
+
         if os.path.exists(fail_filepath):
-            # 解析失败文件
             fail_info = parse_analysis_fail_file(fail_filepath)
             return jsonify({
                 'success': False,
@@ -744,43 +803,14 @@ def get_analysis_results():
                 'category': selected_category,
                 'range_type': selected_range
             })
-        
-        # 当USE_DB_READ=true时，优先从DB返回分析结果
-        if use_db_read:
-            try:
-                prompt_id = db_repo.get_prompt_id_by_name("system_default")
-                if prompt_id:
-                    limit = 5 if selected_range == 'top5' else 10 if selected_range == 'top10' else 20 if selected_range == 'top20' else None
-                    articles = db_repo.get_analysis_results(date=selected_date, category=selected_category, prompt_id=prompt_id, limit=limit)
-                    if len(articles) > 0:
-                        return jsonify({
-                            'success': True,
-                            'articles': articles,
-                            'total': len(articles),
-                            'date': selected_date,
-                            'category': selected_category,
-                            'range_type': selected_range
-                        })
-            except Exception as e:
-                print(f"从DB读取分析结果失败，降级到文件: {e}")
 
         if not os.path.exists(filepath):
-            return jsonify({'error': f'未找到 {selected_date} 的 {selected_category} {selected_range} 分析结果文件'}), 404
+            return jsonify({'error': f'未找到 {selected_date} 的 {selected_category} {selected_range} 分析结果'}), 404
 
-        # 解析分析结果文件
         articles = parse_analysis_markdown_file(filepath)
-        
         if len(articles) == 0:
-            return jsonify({'error': f'分析结果文件为空'}), 404
-        
-        return jsonify({
-            'success': True,
-            'articles': articles,
-            'total': len(articles),
-            'date': selected_date,
-            'category': selected_category,
-            'range_type': selected_range
-        })
+            return jsonify({'error': f'分析结果为空'}), 404
+        return jsonify({'success': True, 'articles': articles, 'total': len(articles), 'date': selected_date, 'category': selected_category, 'range_type': selected_range})
         
     except Exception as e:
         return jsonify({'error': f'服务器错误: {str(e)}'}), 500

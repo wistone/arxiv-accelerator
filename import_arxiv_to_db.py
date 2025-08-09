@@ -210,17 +210,34 @@ def import_arxiv_papers_to_db(
             app_schema().from_("papers").upsert(items_for_write, on_conflict="arxiv_id").execute()
             arxiv_to_paper_id.update({r["arxiv_id"]: r["paper_id"] for r in db_repo.get_papers_by_arxiv_ids(all_ids)})
 
+    # 对于已存在的 arxiv，仍需要：
+    #  - 更新 update_date 为目标日（确保当天列表统计准确）
+    #  - 补建分类关联
+    if skip_if_exists and existing_set:
+        try:
+            from db.client import app_schema
+            app_schema().from_("papers").update({"update_date": target_date_str}).in_("arxiv_id", list(existing_set)).execute()
+        except Exception as e:
+            print(f"轻量更新 existing papers.update_date 失败: {e}")
+
+    # 统一获取 arxiv -> paper_id 映射（包含新写入与已存在）
+    try:
+        final_rows = db_repo.get_papers_by_arxiv_ids(all_ids)
+        arxiv_to_paper_id.update({r["arxiv_id"]: r["paper_id"] for r in final_rows})
+    except Exception as e:
+        print(f"获取paper映射失败: {e}")
     # 对于 skip_if_exists=true 的情形，已有的也需要映射（用于后续关联时若你将来想保留，但当前逻辑保持与旧实现一致：跳过已有，不再做关联）
 
     # 4) 批量 upsert categories 并建立关联（仅对新写入的 paper）
-    new_arxiv_ids = set(r["arxiv_id"] for r in items_for_write)
+    # 对“当日解析到的全部 arxiv”补建类别关联
+    target_arxiv_ids = set(r["arxiv_id"] for r in parsed_items)
     all_category_names: List[str] = []
-    for aid in new_arxiv_ids:
+    for aid in target_arxiv_ids:
         all_category_names.extend(arxiv_to_categories.get(aid, []))
     cat_name_to_id = db_repo.upsert_categories_bulk(all_category_names) if all_category_names else {}
 
     pairs: List[Tuple[int, int]] = []  # (paper_id, category_id)
-    for aid in new_arxiv_ids:
+    for aid in target_arxiv_ids:
         pid = arxiv_to_paper_id.get(aid)
         if not pid:
             continue
@@ -232,9 +249,9 @@ def import_arxiv_papers_to_db(
         db_repo.upsert_paper_categories_bulk(pairs)
 
     # 5) 打印日志（与旧行为尽量一致）
-    total_upsert = len(new_arxiv_ids)
+    total_upsert = len(items_for_write)
     total_link = len(pairs)
-    for idx, aid in enumerate(new_arxiv_ids, start=1):
+    for idx, aid in enumerate(sorted(target_arxiv_ids), start=1):
         now = dt.datetime.now().isoformat(timespec='seconds')
         primary_category = parsed_items[[r["arxiv_id"] for r in parsed_items].index(aid)].get("primary_category")
         print(f"[{idx}/{total}] arxiv_id={aid} update_date={target_date_str} search_category={category} now={now}")

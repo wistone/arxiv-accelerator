@@ -50,6 +50,27 @@ function closeModal() {
     document.getElementById('analysisModal').style.display = 'none';
 }
 
+// 设置按钮loading状态（禁用+文案切换）
+function setButtonLoading(buttonId, isLoading, loadingText = '处理中...') {
+    const btn = document.getElementById(buttonId);
+    if (!btn) return;
+    if (isLoading) {
+        if (!btn.dataset.originalText) {
+            btn.dataset.originalText = btn.innerText;
+        }
+        btn.innerText = loadingText;
+        btn.disabled = true;
+        btn.classList.add('disabled');
+    } else {
+        if (btn.dataset.originalText) {
+            btn.innerText = btn.dataset.originalText;
+            delete btn.dataset.originalText;
+        }
+        btn.disabled = false;
+        btn.classList.remove('disabled');
+    }
+}
+
 // 初始化页面事件监听器
 function initializeEventListeners() {
     // 监听日期和类别变化，重置分析选项

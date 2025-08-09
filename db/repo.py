@@ -119,7 +119,7 @@ def list_papers_by_date_category(date: str | dt.date, category: str) -> List[Dic
             .select("papers!inner(paper_id, arxiv_id, title, authors, abstract, link, author_affiliation)")
             .eq("category_id", category_id)
             .eq("papers.update_date", date_str)
-            .order("arxiv_id", foreign_table="papers")
+            .order("arxiv_id", foreign_table="papers", desc=True)
             .limit(5000)
             .limit(5000, foreign_table="papers")
             .execute()
@@ -164,7 +164,7 @@ def list_papers_by_date_category(date: str | dt.date, category: str) -> List[Dic
                 .select("paper_id, arxiv_id, title, authors, abstract, link, author_affiliation")
                 .in_("paper_id", chunk)
                 .eq("update_date", date_str)
-                .order("arxiv_id")
+                .order("arxiv_id", desc=True)
             )
             part = q_papers.range(0, len(chunk) - 1).execute().data
             rows.extend(part)
@@ -217,6 +217,7 @@ def list_unanalyzed_papers(date: str | dt.date, category: str, prompt_id: str, l
         .select("paper_id, arxiv_id, title, authors, abstract, link, author_affiliation")
         .eq("update_date", date_str)
         .in_("paper_id", paper_ids)
+        .order("arxiv_id")
         .execute()
         .data
     )
@@ -249,57 +250,104 @@ def insert_analysis_result(
 
 
 def get_analysis_results(
-    *, date: str | dt.date, category: str, prompt_id: str, limit: Optional[int] = None, order_by: str = "norm_score.desc"
+    *, date: str | dt.date, category: str, prompt_id: str, limit: Optional[int] = None, order_by: str = "arxiv_id.asc"
 ) -> List[Dict[str, Any]]:
+    """按“当天 + 分类 + prompt”返回分析结果。
+
+    - 仅返回当天该分类的论文分析（不会混入其它日期）
+    - 元数据从 papers 表取（title/authors/abstract/link/author_affiliation）
+    - 顺序与搜索页一致（按 arxiv_id 升序）
+    - limit 若提供，则在最终顺序上截断
+    """
     db = app_schema()
     date_str = _ensure_date(date)
     category_id = upsert_category(category)
-    # paper ids of category
-    paper_ids_rows = db.from_("paper_categories").select("paper_id").eq("category_id", category_id).execute().data
-    paper_ids = [r["paper_id"] for r in paper_ids_rows]
-    if not paper_ids:
+
+    # 1) 取当天+分类的 papers 列表（保持顺序）
+    #    先取该分类下全部 paper_id（分页防止截断）
+    all_category_paper_ids: List[int] = []
+    page_size = 1000
+    offset = 0
+    while True:
+        rows = (
+            db.from_("paper_categories").select("paper_id").eq("category_id", category_id)
+            .range(offset, offset + page_size - 1).execute().data
+        )
+        if not rows:
+            break
+        all_category_paper_ids.extend([r["paper_id"] for r in rows])
+        offset += page_size
+        if len(rows) < page_size:
+            break
+    if not all_category_paper_ids:
         return []
 
-    # analysis rows
-    q = (
-        db.from_("analysis_results")
-        .select("paper_id, analysis_result, norm_score")
-        .eq("prompt_id", prompt_id)
-        .in_("paper_id", paper_ids)
-        .order("norm_score", desc=True)
-    )
-    if limit:
-        q = q.limit(limit)
-    analysis_rows = q.execute().data
-    analyzed_ids = {r["paper_id"] for r in analysis_rows}
-
-    if not analyzed_ids:
+    # 当天该分类的 papers（保序）
+    papers_rows: List[Dict[str, Any]] = []
+    # 分块避免 in() 过长
+    chunk = 1000
+    temp_rows: List[Dict[str, Any]] = []
+    for i in range(0, len(all_category_paper_ids), chunk):
+        part_ids = all_category_paper_ids[i:i + chunk]
+        part = (
+            db.from_("papers")
+            .select("paper_id, arxiv_id, title, authors, abstract, link, author_affiliation")
+            .eq("update_date", date_str)
+            .in_("paper_id", part_ids)
+            .order("arxiv_id")
+            .execute().data
+        )
+        temp_rows.extend(part)
+    # 可能顺序已按 arxiv_id；为稳妥，统一再排一次
+    # 搜索页按 arxiv_id 降序（最新编号靠前），保持一致
+    papers_rows = sorted(temp_rows, key=lambda r: r.get("arxiv_id", ""), reverse=True)
+    if not papers_rows:
         return []
 
-    # papers details
-    papers_rows = (
-        db.from_("papers")
-        .select("paper_id, arxiv_id, title, authors, abstract, link, author_affiliation")
-        .eq("update_date", date_str)
-        .in_("paper_id", list(analyzed_ids))
-        .execute()
-        .data
-    )
-    meta_by_id = {r["paper_id"]: r for r in papers_rows}
+    date_paper_ids_ordered = [r["paper_id"] for r in papers_rows]
 
-    # build legacy articles output (with analysis_result serialized to string)
+    # 2) 读取该 prompt 的 analysis 结果（仅当天papers）→ 建映射
+    analyzed_map: Dict[int, Dict[str, Any]] = {}
+    # 分页读取 analysis_results，避免默认分页
+    offset = 0
+    page_size = 1000
+    id_set = set(date_paper_ids_ordered)
+    while True:
+        rows = (
+            db.from_("analysis_results")
+            .select("paper_id, analysis_result, norm_score")
+            .eq("prompt_id", prompt_id)
+            .range(offset, offset + page_size - 1)
+            .order("norm_score", desc=True)
+            .execute().data
+        )
+        if not rows:
+            break
+        for r in rows:
+            pid = r.get("paper_id")
+            if pid in id_set and pid not in analyzed_map:
+                analyzed_map[pid] = r
+        offset += page_size
+        if len(rows) < page_size:
+            break
+
+    # 3) 组装输出：按 papers_rows 顺序，仅包含已分析的；应用 limit
     articles: List[Dict[str, Any]] = []
-    for idx, row in enumerate(analysis_rows, start=1):
-        m = meta_by_id.get(row["paper_id"]) or {}
+    for idx, p in enumerate(papers_rows, start=1):
+        row = analyzed_map.get(p["paper_id"])  # 若无分析则跳过
+        if not row:
+            continue
         articles.append({
-            "number": idx,
+            "number": len(articles) + 1,
             "analysis_result": json.dumps(row["analysis_result"], ensure_ascii=False, separators=(",", ":")),
-            "title": m.get("title", ""),
-            "authors": m.get("authors", ""),
-            "abstract": m.get("abstract", ""),
-            "link": m.get("link", ""),
-            "author_affiliation": m.get("author_affiliation", ""),
+            "title": p.get("title", ""),
+            "authors": p.get("authors", ""),
+            "abstract": p.get("abstract", ""),
+            "link": p.get("link", ""),
+            "author_affiliation": p.get("author_affiliation", ""),
         })
+        if limit and len(articles) >= limit:
+            break
     return articles
 
 
@@ -307,14 +355,51 @@ def get_analysis_status(date: str | dt.date, category: str, prompt_id: str) -> D
     db = app_schema()
     date_str = _ensure_date(date)
     category_id = upsert_category(category)
-    paper_ids_rows = db.from_("paper_categories").select("paper_id").eq("category_id", category_id).execute().data
-    paper_ids = [r["paper_id"] for r in paper_ids_rows]
-    if not paper_ids:
+    # 所有该分类下的 paper_id
+    # 需要分页抓取，避免默认只返回10条
+    all_category_paper_ids: List[int] = []
+    page_size = 1000
+    offset = 0
+    while True:
+        rows = (
+            db.from_("paper_categories")
+            .select("paper_id")
+            .eq("category_id", category_id)
+            .range(offset, offset + page_size - 1)
+            .execute()
+            .data
+        )
+        if not rows:
+            break
+        all_category_paper_ids.extend([r["paper_id"] for r in rows])
+        offset += page_size
+        if len(rows) < page_size:
+            break
+    if not all_category_paper_ids:
         return {"total": 0, "completed": 0, "pending": 0}
-    total_rows = db.from_("papers").select("paper_id", count="exact").eq("update_date", date_str).in_("paper_id", paper_ids).execute()
-    total = total_rows.count or 0
-    completed_rows = db.from_("analysis_results").select("paper_id", count="exact").eq("prompt_id", prompt_id).in_("paper_id", paper_ids).execute()
-    completed = completed_rows.count or 0
+    # 该日期 + 该分类的 paper_id 集合
+    date_papers_rows = (
+        db.from_("papers")
+        .select("paper_id")
+        .eq("update_date", date_str)
+        .in_("paper_id", all_category_paper_ids)
+        .execute()
+        .data
+    )
+    date_paper_ids = [r["paper_id"] for r in date_papers_rows]
+    total = len(date_paper_ids)
+    if total == 0:
+        return {"total": 0, "completed": 0, "pending": 0}
+    # 已完成（仅统计该日期集合）
+    completed_rows = (
+        db.from_("analysis_results")
+        .select("paper_id")
+        .eq("prompt_id", prompt_id)
+        .in_("paper_id", date_paper_ids)
+        .execute()
+        .data
+    )
+    completed = len(completed_rows)
     pending = max(total - completed, 0)
     return {"total": total, "completed": completed, "pending": pending}
 

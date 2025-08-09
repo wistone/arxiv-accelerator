@@ -25,8 +25,9 @@ async function analyzeArticles() {
     const selectedDate = document.getElementById('dateSelect').value;
     const selectedCategory = document.getElementById('categorySelect').value;
     
-    // 首先检查是否已存在分析结果文件
+    // 首先检查数据库中的分析进度
     try {
+        setButtonLoading('analyzeBtn', true, '检查中...');
         const response = await fetch('/api/check_analysis_exists', {
             method: 'POST',
             headers: {
@@ -40,13 +41,33 @@ async function analyzeArticles() {
 
         const data = await response.json();
 
-        if (response.ok && data.exists) {
-            // 如果分析文件已存在，显示选择弹窗
-            showAnalysisOptions(data);
+        if (response.ok) {
+            // 渲染“已分析 n/total”
+            const analysisStatus = document.getElementById('analysisStatus');
+            if (analysisStatus) {
+                analysisStatus.innerHTML = `已分析 ${data.completed} / ${data.total}`;
+            }
+
+            // 更新“开始分析”按钮状态
+            const startBtn = document.getElementById('startAnalysisBtn') || document.getElementById('analyzeBtn');
+            if (startBtn) startBtn.disabled = !!data.all_analyzed;
+
+            // 显示弹窗与选项
+            document.getElementById('analysisModal').style.display = 'block';
+            document.getElementById('testOptions').style.display = 'block';
+            document.getElementById('progressContainer').style.display = 'none';
+            document.getElementById('currentPaper').style.display = 'none';
+            document.getElementById('analysisSummary').style.display = 'none';
+
+            // 提供“加载并展示”入口
+            ensureShowExistingButton(data);
             return;
         }
     } catch (error) {
-        console.log('检查分析文件时出错，继续进行新分析:', error);
+        console.log('检查分析进度时出错，继续进行新分析:', error);
+    }
+    finally {
+        setButtonLoading('analyzeBtn', false);
     }
 
     // 如果不存在分析文件，显示分析弹窗
@@ -126,48 +147,13 @@ async function startAnalysis() {
     const selectedRange = testCount === '5' ? 'top5' :
                        testCount === '10' ? 'top10' :
                        testCount === '20' ? 'top20' : 'full';
-    
-    // 先尝试加载现有结果
-    try {
-        const response = await fetch('/api/get_analysis_results', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                date: selectedDate,
-                category: selectedCategory,
-                range_type: selectedRange
-            })
-        });
 
-        if (response.ok) {
-            const data = await response.json();
-            closeModal();
-            
-            // 检查是否是分析失败的结果
-            if (data.is_analysis_failed) {
-                displayAnalysisFailure(data.fail_info);
-                showError(`分析失败：${data.fail_info.total_papers} 篇论文的AI分析都失败了`);
-            } else {
-                displayAnalysisResults(data.articles);
-                showSuccess(`成功加载 ${selectedRange} 分析结果，共 ${data.total} 篇论文`);
-            }
-            
-            // 更新URL状态
-            updateUrlState('analysis', selectedDate, selectedCategory, selectedRange);
-            return;
-        }
-    } catch (error) {
-        console.log('加载现有结果失败，开始重新生成:', error);
-    }
-    
-    // 如果加载失败，开始重新生成
+    // 直接开始分析（后端会跳过已分析并按补齐逻辑选择待分析数）
     const testCountInt = testCount === '' ? null : parseInt(testCount);
-    await startNewAnalysis(selectedDate, selectedCategory, testCountInt);
+    await startNewAnalysis(selectedDate, selectedCategory, selectedRange, testCountInt);
 }
 
-async function startNewAnalysis(selectedDate, selectedCategory, testCount) {
+async function startNewAnalysis(selectedDate, selectedCategory, selectedRange, testCount) {
     // 隐藏测试选项，显示进度条
     document.getElementById('testOptions').style.display = 'none';
     document.getElementById('progressContainer').style.display = 'block';
@@ -177,6 +163,7 @@ async function startNewAnalysis(selectedDate, selectedCategory, testCount) {
     window.AppState.lastProgressUpdate = Date.now();
     
     try {
+        setButtonLoading('startAnalysisBtn', true, '启动中...');
         const response = await fetch('/api/analyze_papers', {
             method: 'POST',
             headers: {
@@ -185,7 +172,7 @@ async function startNewAnalysis(selectedDate, selectedCategory, testCount) {
             body: JSON.stringify({
                 date: selectedDate,
                 category: selectedCategory,
-                test_count: testCount
+                range_type: selectedRange
             })
         });
 
@@ -200,6 +187,23 @@ async function startNewAnalysis(selectedDate, selectedCategory, testCount) {
     } catch (error) {
         showError('分析启动失败: ' + error.message);
         console.error('分析错误:', error);
+    } finally {
+        setButtonLoading('startAnalysisBtn', false);
+    }
+}
+
+function ensureShowExistingButton(statusData) {
+    const btn = document.getElementById('showExistingBtn');
+    if (!btn) return; // 如果页面没有该按钮，忽略
+    // 当已分析数量>0时展示按钮
+    if (statusData && statusData.completed > 0) {
+        btn.style.display = 'inline-block';
+        btn.onclick = async () => {
+            await loadAnalysisResults('full');
+            closeModal();
+        };
+    } else {
+        btn.style.display = 'none';
     }
 }
 
@@ -208,6 +212,7 @@ async function loadAnalysisResults(rangeTypeToLoad = 'full') {
     const selectedCategory = document.getElementById('categorySelect').value;
     
     try {
+        setButtonLoading('showExistingBtn', true, '加载中...');
         const response = await fetch('/api/get_analysis_results', {
             method: 'POST',
             headers: {
@@ -240,6 +245,8 @@ async function loadAnalysisResults(rangeTypeToLoad = 'full') {
     } catch (error) {
         showError('加载分析结果时出现网络错误');
         console.error('加载分析结果错误:', error);
+    } finally {
+        setButtonLoading('showExistingBtn', false);
     }
 }
 
