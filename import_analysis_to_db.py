@@ -56,47 +56,102 @@ def import_analysis_markdown(filepath: str, prompt_id: str) -> Dict[str, Any]:
     if rows:
         has_author_affil = len(rows[0]) >= 7
 
+    # 预解析所有行，收集 arxiv_id、analysis_json、author_affil
+    parsed_items: List[Dict[str, Any]] = []
     for idx, cols in enumerate(rows, start=1):
         if len(cols) < 6:
             continue
         analysis_result_text = cols[1].replace('\\|', '|')
         link = cols[5].replace('\\|', '|')
         author_affil = cols[6].replace('\\|', '|') if has_author_affil and len(cols) >= 7 else None
-
         try:
             arxiv_id = extract_arxiv_id_from_link(link)
-            paper_id = db_repo.get_paper_id_by_arxiv_id(arxiv_id)
-            if not paper_id:
-                papers_missing += 1
-                print(f"[{idx}] 跳过：找不到paper arxiv_id={arxiv_id}")
-                continue
-
-            if db_repo.analysis_exists(paper_id, prompt_id):
-                skipped += 1
-                print(f"[{idx}] 跳过已存在分析：arxiv_id={arxiv_id}")
-                continue
-
-            # 确保analysis_result为合法JSON
             try:
-                parsed = json.loads(analysis_result_text)
+                analysis_json = json.loads(analysis_result_text)
             except Exception as e:
                 print(f"[{idx}] 解析analysis_result失败：{e} | 原文={analysis_result_text[:120]}")
                 continue
-
-            db_repo.insert_analysis_result(paper_id=paper_id, prompt_id=prompt_id, analysis_json=parsed, created_by=None)
-            updated += 1
-            print(f"[{idx}] 写入analysis_results：paper_id={paper_id} arxiv_id={arxiv_id}")
-
-            if author_affil is not None and author_affil != "":
-                try:
-                    db_repo.update_paper_author_affiliation(paper_id, author_affil)
-                    author_updates += 1
-                    print(f"    + 更新papers.author_affiliation")
-                except Exception as e:
-                    print(f"    ! 更新author_affiliation失败：{e}")
-
+            parsed_items.append({
+                "idx": idx,
+                "arxiv_id": arxiv_id,
+                "analysis_json": analysis_json,
+                "author_affil": author_affil,
+            })
         except Exception as e:
             print(f"[{idx}] 处理异常：{e}")
+
+    if not parsed_items:
+        return {
+            "updated": 0,
+            "skipped": 0,
+            "papers_missing": 0,
+            "author_updates": 0,
+            "rows": len(rows),
+            "has_author_affiliation": has_author_affil,
+        }
+
+    # 批量查询 paper_id
+    arxiv_ids = [it["arxiv_id"] for it in parsed_items]
+    papers = db_repo.get_papers_by_arxiv_ids(arxiv_ids)
+    arxiv_to_pid = {r["arxiv_id"]: r["paper_id"] for r in papers}
+
+    # 根据是否存在进行拆分
+    items_with_pid = []
+    for it in parsed_items:
+        pid = arxiv_to_pid.get(it["arxiv_id"]) 
+        if not pid:
+            papers_missing += 1
+            print(f"[{it['idx']}] 跳过：找不到paper arxiv_id={it['arxiv_id']}")
+            continue
+        it["paper_id"] = pid
+        items_with_pid.append(it)
+
+    if not items_with_pid:
+        return {
+            "updated": 0,
+            "skipped": 0,
+            "papers_missing": papers_missing,
+            "author_updates": 0,
+            "rows": len(rows),
+            "has_author_affiliation": has_author_affil,
+        }
+
+    # 批量查询已存在的分析，避免重复
+    paper_ids = [it["paper_id"] for it in items_with_pid]
+    existing_pids = set(db_repo.list_existing_analyses_for_prompt(paper_ids, prompt_id))
+
+    # 需要写入的行
+    bulk_rows: List[Dict[str, Any]] = []
+    for it in items_with_pid:
+        if it["paper_id"] in existing_pids:
+            skipped += 1
+            print(f"[{it['idx']}] 跳过已存在分析：arxiv_id={it['arxiv_id']}")
+            continue
+        bulk_rows.append({
+            "paper_id": it["paper_id"],
+            "prompt_id": prompt_id,
+            "analysis_result": it["analysis_json"],
+            "created_by": None,
+        })
+
+    if bulk_rows:
+        db_repo.insert_analysis_results_bulk(bulk_rows)
+        updated += len(bulk_rows)
+        # 打印写入行的信息
+        for it in items_with_pid:
+            if it["paper_id"] not in existing_pids:
+                print(f"[{it['idx']}] 写入analysis_results：paper_id={it['paper_id']} arxiv_id={it['arxiv_id']}")
+
+    # 批量更新 author_affiliation（若提供且非空）
+    for it in items_with_pid:
+        aff = it.get("author_affil")
+        if aff:
+            try:
+                db_repo.update_paper_author_affiliation(it["paper_id"], aff)
+                author_updates += 1
+                print("    + 更新papers.author_affiliation")
+            except Exception as e:
+                print(f"    ! 更新author_affiliation失败：{e}")
 
     return {
         "updated": updated,
