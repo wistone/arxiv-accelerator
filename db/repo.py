@@ -114,14 +114,14 @@ def list_papers_by_date_category(date: str | dt.date, category: str) -> List[Dic
     # 优先走一次请求的内联JOIN查询（通过外键自动关系），显著减少网络往返
     category_id = upsert_category(category)
     try:
+        # 使用range替代limit以避免Supabase的默认限制
         joined_rows = (
             db.from_("paper_categories")
             .select("papers!inner(paper_id, arxiv_id, title, authors, abstract, link, author_affiliation)")
             .eq("category_id", category_id)
             .eq("papers.update_date", date_str)
             .order("arxiv_id", foreign_table="papers", desc=True)
-            .limit(5000)
-            .limit(5000, foreign_table="papers")
+            .range(0, 4999)  # 获取前5000条记录
             .execute()
             .data
         )
@@ -198,29 +198,59 @@ def get_prompt_id_by_name(prompt_name: str = "system_default") -> Optional[str]:
 def list_unanalyzed_papers(date: str | dt.date, category: str, prompt_id: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
     db = app_schema()
     date_str = _ensure_date(date)
-    # paper ids by category
+    # paper ids by category - 使用分页避免截断
     category_id = upsert_category(category)
-    paper_ids_rows = db.from_("paper_categories").select("paper_id").eq("category_id", category_id).execute().data
-    paper_ids = [r["paper_id"] for r in paper_ids_rows]
+    paper_ids = []
+    page_size = 1000
+    offset = 0
+    while True:
+        rows = (
+            db.from_("paper_categories")
+            .select("paper_id")
+            .eq("category_id", category_id)
+            .range(offset, offset + page_size - 1)
+            .execute()
+            .data
+        )
+        if not rows:
+            break
+        paper_ids.extend([r["paper_id"] for r in rows])
+        offset += page_size
+        if len(rows) < page_size:
+            break
+    
     if not paper_ids:
         return []
 
-    # already analyzed for this prompt
-    analyzed_rows = (
-        db.from_("analysis_results").select("paper_id").eq("prompt_id", prompt_id).in_("paper_id", paper_ids).execute().data
-    )
-    analyzed_ids = {r["paper_id"] for r in analyzed_rows}
+    # already analyzed for this prompt - 分块查询
+    analyzed_ids = set()
+    chunk_size = 50
+    for i in range(0, len(paper_ids), chunk_size):
+        chunk_ids = paper_ids[i:i + chunk_size]
+        chunk_rows = (
+            db.from_("analysis_results")
+            .select("paper_id")
+            .eq("prompt_id", prompt_id)
+            .in_("paper_id", chunk_ids)
+            .execute()
+            .data
+        )
+        analyzed_ids.update(r["paper_id"] for r in chunk_rows)
 
-    # candidate papers (by date)
-    candidates = (
-        db.from_("papers")
-        .select("paper_id, arxiv_id, title, authors, abstract, link, author_affiliation")
-        .eq("update_date", date_str)
-        .in_("paper_id", paper_ids)
-        .order("arxiv_id")
-        .execute()
-        .data
-    )
+    # candidate papers (by date) - 分块查询
+    candidates = []
+    for i in range(0, len(paper_ids), chunk_size):
+        chunk_ids = paper_ids[i:i + chunk_size]
+        chunk_candidates = (
+            db.from_("papers")
+            .select("paper_id, arxiv_id, title, authors, abstract, link, author_affiliation")
+            .eq("update_date", date_str)
+            .in_("paper_id", chunk_ids)
+            .order("arxiv_id")
+            .execute()
+            .data
+        )
+        candidates.extend(chunk_candidates)
 
     pending = [r for r in candidates if r["paper_id"] not in analyzed_ids]
     if limit:
@@ -379,28 +409,39 @@ def get_analysis_status(date: str | dt.date, category: str, prompt_id: str) -> D
     if not all_category_paper_ids:
         return {"total": 0, "completed": 0, "pending": 0}
     # 该日期 + 该分类的 paper_id 集合
-    date_papers_rows = (
-        db.from_("papers")
-        .select("paper_id")
-        .eq("update_date", date_str)
-        .in_("paper_id", all_category_paper_ids)
-        .execute()
-        .data
-    )
-    date_paper_ids = [r["paper_id"] for r in date_papers_rows]
+    # 分块查询以避免in()参数过多的限制
+    date_paper_ids = []
+    chunk_size = 50  # 每次查询50个ID
+    for i in range(0, len(all_category_paper_ids), chunk_size):
+        chunk_ids = all_category_paper_ids[i:i + chunk_size]
+        chunk_rows = (
+            db.from_("papers")
+            .select("paper_id")
+            .eq("update_date", date_str)
+            .in_("paper_id", chunk_ids)
+            .execute()
+            .data
+        )
+        date_paper_ids.extend([r["paper_id"] for r in chunk_rows])
     total = len(date_paper_ids)
     if total == 0:
         return {"total": 0, "completed": 0, "pending": 0}
     # 已完成（仅统计该日期集合）
-    completed_rows = (
-        db.from_("analysis_results")
-        .select("paper_id")
-        .eq("prompt_id", prompt_id)
-        .in_("paper_id", date_paper_ids)
-        .execute()
-        .data
-    )
-    completed = len(completed_rows)
+    # 分块查询以避免in()参数过多的限制
+    completed_paper_ids = []
+    chunk_size = 50  # 每次查询50个ID
+    for i in range(0, len(date_paper_ids), chunk_size):
+        chunk_ids = date_paper_ids[i:i + chunk_size]
+        chunk_rows = (
+            db.from_("analysis_results")
+            .select("paper_id")
+            .eq("prompt_id", prompt_id)
+            .in_("paper_id", chunk_ids)
+            .execute()
+            .data
+        )
+        completed_paper_ids.extend([r["paper_id"] for r in chunk_rows])
+    completed = len(completed_paper_ids)
     pending = max(total - completed, 0)
     return {"total": total, "completed": completed, "pending": pending}
 

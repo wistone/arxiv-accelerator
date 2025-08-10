@@ -71,13 +71,16 @@ function updateProgress(data) {
     }
 }
 
-function startSSEConnection(selectedDate, selectedCategory, testCount) {
+function startSSEConnection(selectedDate, selectedCategory, testCount, rangeType) {
     // 清理之前的连接
     if (window.AppState.currentEventSource) {
         window.AppState.currentEventSource.close();
     }
 
     console.log('🔌 启动SSE连接...');
+    
+    // 保存当前分析的范围类型
+    window.AppState.currentAnalysisRange = rangeType || 'full';
     
     // 使用Server-Sent Events获取实时进度
     window.AppState.currentEventSource = new EventSource(`/api/analysis_progress?date=${selectedDate}&category=${selectedCategory}&test_count=${testCount || ''}`);
@@ -163,7 +166,7 @@ async function checkAnalysisStatus(selectedDate, selectedCategory) {
             // 分析已完成，直接跳转到结果页面
             const completionData = {
                 summary: `分析完成！共处理 ${data.total} 篇论文`,
-                completed_range_type: 'full'
+                completed_range_type: window.AppState.currentAnalysisRange || 'full'
             };
             
             onAnalysisComplete(completionData);
@@ -213,6 +216,6 @@ async function onAnalysisComplete(data) {
     // 立即关闭弹窗并加载新表格
     closeModal();
     // 使用完成的分析范围类型来加载结果
-    const completedRangeType = data.completed_range_type || 'full';
+    const completedRangeType = data.completed_range_type || window.AppState.currentAnalysisRange || 'full';
     await loadAnalysisResults(completedRangeType);
 }

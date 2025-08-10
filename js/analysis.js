@@ -191,6 +191,9 @@ async function startAnalysis() {
     // 直接开始分析（后端会跳过已分析并按补齐逻辑选择待分析数）
     const testCountInt = testCount === '' ? null : parseInt(testCount);
     await startNewAnalysis(selectedDate, selectedCategory, selectedRange, testCountInt);
+    
+    // 更新URL状态，使用正确的limit参数
+    updateUrlState('analysis', selectedDate, selectedCategory, selectedRange);
 }
 
 async function startNewAnalysis(selectedDate, selectedCategory, selectedRange, testCount) {
@@ -223,7 +226,7 @@ async function startNewAnalysis(selectedDate, selectedCategory, selectedRange, t
         }
 
         // 开始SSE连接和故障转移检查机制
-        startSSEConnection(selectedDate, selectedCategory, testCount);
+        startSSEConnection(selectedDate, selectedCategory, testCount, selectedRange);
         startProgressFallbackCheck(selectedDate, selectedCategory);
 
     } catch (error) {
@@ -243,7 +246,16 @@ function ensureShowExistingButton(statusData) {
     if (statusData && statusData.completed > 0) {
         btn.style.display = 'inline-block';
         btn.onclick = async () => {
-            await loadAnalysisResults('full');
+            // 根据实际完成的数量确定范围类型
+            let rangeType = 'full';
+            if (statusData.completed <= 5) {
+                rangeType = 'top5';
+            } else if (statusData.completed <= 10) {
+                rangeType = 'top10';
+            } else if (statusData.completed <= 20) {
+                rangeType = 'top20';
+            }
+            await loadAnalysisResults(rangeType);
             closeModal();
         };
     } else {
@@ -283,8 +295,9 @@ async function loadAnalysisResults(rangeTypeToLoad = 'full') {
                 showSuccess(`分析完成！共处理 ${data.total} 篇论文`);
             }
             
-            // 更新URL状态
-            updateUrlState('analysis', selectedDate, selectedCategory, rangeTypeToLoad);
+            // 更新URL状态 - 修正limit参数
+            const limitParam = rangeTypeToLoad === 'full' ? 'full' : rangeTypeToLoad;
+            updateUrlState('analysis', selectedDate, selectedCategory, limitParam);
         } else {
             showError(data.error || '加载分析结果失败');
         }

@@ -32,18 +32,32 @@
   align-items: center;
   gap: 12px;
 }
-.test-options-row label { white-space: nowrap; }
-.test-options-row select#testCount { width: 200px; height: 44px; }
+.test-options-row label { 
+  white-space: nowrap; 
+  display: flex;
+  align-items: center;
+  height: 44px;
+  margin: 0;
+}
+.test-options-row select#testCount { 
+  width: 200px; 
+  height: 44px; 
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
 
 /* 弹窗内两个操作按钮：不等宽，但高度统一 */
 #startAnalysisBtn,
 #showExistingBtn {
   min-width: 160px;
-  height: 48px;
-  padding: 10px 16px;
+  height: 44px;  /* 统一高度为44px，与选择框一致 */
+  padding: 0 16px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  line-height: 1;  /* 重置行高 */
+  font-size: 16px;
 }
 
 /* 统一按钮颜色：可点紫色，不可点灰色 */
