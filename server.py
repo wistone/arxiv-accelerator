@@ -648,14 +648,40 @@ def run_db_analysis_task(task_id, pending_papers, selected_date, selected_catego
                     pass_filter = bool(ar.get('pass_filter'))
                     has_aff = bool(paper.get('author_affiliation'))
                     if pass_filter and not has_aff:
+                        # 更新进度状态，告知前端正在获取机构信息
+                        with analysis_lock:
+                            analysis_progress[task_id]['status'] = 'fetching_affiliations'
+                            analysis_progress[task_id]['paper'] = {
+                                **paper,
+                                'status': '正在获取作者机构...'
+                            }
+                        
                         from parse_author_affli_from_doubao import get_author_affiliations
-                        affiliations = get_author_affiliations(paper['link'])
+                        
+                        # 定义进度回调函数
+                        def update_progress(message):
+                            with analysis_lock:
+                                analysis_progress[task_id]['paper'] = {
+                                    **paper,
+                                    'status': message
+                                }
+                        
+                        affiliations = get_author_affiliations(paper['link'], progress_callback=update_progress)
                         if affiliations:
                             import json as _json
                             aff_json = _json.dumps(affiliations, ensure_ascii=False)
                             db_repo.update_paper_author_affiliation(paper['paper_id'], aff_json)
+                        
+                        # 恢复处理状态
+                        with analysis_lock:
+                            analysis_progress[task_id]['status'] = 'processing'
+                            analysis_progress[task_id]['paper'] = paper
                 except Exception as _aff_e:
                     print(f"获取/写入作者机构失败: {_aff_e}")
+                    # 确保状态恢复
+                    with analysis_lock:
+                        analysis_progress[task_id]['status'] = 'processing'
+                        analysis_progress[task_id]['paper'] = paper
 
                 success_count += 1
                 elapsed = time.time() - start_time

@@ -209,7 +209,7 @@ def clear_affiliation_cache():
     _AFFILIATION_CACHE.clear()
     print("[缓存] 🗑️ 机构信息缓存已清空")
 
-def get_author_affiliations(arxiv_url: str, use_cache: bool = True) -> List[str]:
+def get_author_affiliations(arxiv_url: str, use_cache: bool = True, progress_callback=None) -> List[str]:
     """
     从ArXiv论文链接获取作者机构信息列表（去重）
     
@@ -235,11 +235,19 @@ def get_author_affiliations(arxiv_url: str, use_cache: bool = True) -> List[str]
         return cached_result
     
     try:
+        # 调用进度回调
+        if progress_callback:
+            progress_callback("正在下载PDF...")
+        
         # 1. 下载PDF（优化：并行处理）
         step_start = time.time()
         pdf_content = download_arxiv_pdf(arxiv_url)
         download_time = time.time() - step_start
         print(f"[机构获取] PDF下载完成，耗时: {download_time:.2f}s")
+        
+        # 调用进度回调
+        if progress_callback:
+            progress_callback("正在解析PDF文本...")
         
         # 2. 提取第一页文本（优化：只提取前2000字符用于机构识别）
         step_start = time.time()
@@ -252,6 +260,10 @@ def get_author_affiliations(arxiv_url: str, use_cache: bool = True) -> List[str]
         
         extract_time = time.time() - step_start
         print(f"[机构获取] PDF解析完成，耗时: {extract_time:.2f}s，文本长度: {len(first_page_text)}")
+        
+        # 调用进度回调
+        if progress_callback:
+            progress_callback("正在调用AI模型分析...")
         
         # 3. 使用豆包API解析机构信息
         step_start = time.time()
