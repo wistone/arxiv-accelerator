@@ -91,6 +91,7 @@ def import_arxiv_papers_to_db(
     limit: Optional[int] = None,
     skip_if_exists: bool = True,
 ) -> Dict[str, Any]:
+    import time
     target_date = dt.datetime.strptime(target_date_str, "%Y-%m-%d").date()
     et_tz = pytz.timezone("US/Eastern")
 
@@ -116,6 +117,7 @@ def import_arxiv_papers_to_db(
     print(f"窗口(UTC): {start_utc} ~ {end_utc}")
     print(f"URL: {url}")
 
+    start_time = time.time()
     try:
         resp = requests.get(url, timeout=30)
         resp.raise_for_status()
@@ -129,15 +131,19 @@ def import_arxiv_papers_to_db(
             http_url = url.replace("https://", "http://")
             print(f"feedparser直连失败，尝试HTTP回退: {e2}")
             feed = feedparser.parse(http_url)
-    print(f"API返回 {len(feed.entries)} 条")
+    api_time = time.time() - start_time if 'start_time' in locals() else 0
+    print(f"⏱️  [导入性能] API调用完成，耗时: {api_time:.2f}s | 返回 {len(feed.entries)} 条")
 
+    filter_start = time.time()
     kept: List[Any] = []
     for i, entry in enumerate(feed.entries):
         pub_utc = dt.datetime(*entry.published_parsed[:6], tzinfo=dt.timezone.utc)
         if start_utc <= pub_utc <= end_utc:
             kept.append(entry)
 
-    print(f"筛选后保留 {len(kept)} 条")
+    filter_time = time.time() - filter_start
+    print(f"⏱️  [导入性能] 筛选完成，耗时: {filter_time:.2f}s | 保留 {len(kept)} 条")
+    
     if limit is not None:
         kept = kept[:limit]
         print(f"按limit截断为 {len(kept)} 条")
@@ -145,6 +151,7 @@ def import_arxiv_papers_to_db(
 
     # ===== 新：批处理提速路径 =====
     # 1) 预解析 entries，构建待写入行与类别映射
+    parse_start = time.time()
     parsed_items: List[Dict[str, Any]] = []
     arxiv_to_categories: Dict[str, List[str]] = {}
     errors = 0
@@ -186,8 +193,11 @@ def import_arxiv_papers_to_db(
             print(f"[{idx}] ❌ 预处理失败: {e}")
 
     total = len(parsed_items)
+    parse_time = time.time() - parse_start
+    print(f"⏱️  [导入性能] 解析完成，耗时: {parse_time:.2f}s | 处理 {total} 条记录")
 
     # 2) 处理已存在逻辑
+    db_start = time.time()
     all_ids = [r["arxiv_id"] for r in parsed_items]
     existing_rows = db_repo.get_papers_by_arxiv_ids(all_ids)
     existing_set = {r["arxiv_id"] for r in existing_rows}
@@ -247,18 +257,30 @@ def import_arxiv_papers_to_db(
                 pairs.append((pid, cid))
     if pairs:
         db_repo.upsert_paper_categories_bulk(pairs)
-
-    # 5) 打印日志（与旧行为尽量一致）
+    
+    # 5) 计算统计信息
     total_upsert = len(items_for_write)
     total_link = len(pairs)
-    for idx, aid in enumerate(sorted(target_arxiv_ids), start=1):
+    
+    db_time = time.time() - db_start
+    print(f"⏱️  [导入性能] 数据库操作完成，耗时: {db_time:.2f}s | upsert={total_upsert} link={total_link}")
+    
+    # 优化：仅在调试模式或数量较少时输出详细日志
+    if total <= 20 or os.getenv('DEBUG_IMPORT', '').lower() == 'true':
+        # 优化：构建 arxiv_id -> parsed_item 的映射，避免重复索引查找
+        arxiv_to_item = {r["arxiv_id"]: r for r in parsed_items}
         now = dt.datetime.now().isoformat(timespec='seconds')
-        primary_category = parsed_items[[r["arxiv_id"] for r in parsed_items].index(aid)].get("primary_category")
-        print(f"[{idx}/{total}] arxiv_id={aid} update_date={target_date_str} search_category={category} now={now}")
-        for cat in arxiv_to_categories.get(aid, []):
-            cid = cat_name_to_id.get(cat)
-            if cid:
-                print(f"    + link category: {cat} (category_id={cid})")
+        
+        for idx, aid in enumerate(sorted(target_arxiv_ids), start=1):
+            item = arxiv_to_item.get(aid, {})
+            primary_category = item.get("primary_category")
+            print(f"[{idx}/{total}] arxiv_id={aid} update_date={target_date_str} search_category={category} now={now}")
+            for cat in arxiv_to_categories.get(aid, []):
+                cid = cat_name_to_id.get(cat)
+                if cid:
+                    print(f"    + link category: {cat} (category_id={cid})")
+    else:
+        print(f"⏭️  [导入性能] 跳过详细日志输出（{total}条记录，如需查看设置 DEBUG_IMPORT=true）")
 
     return {
         "total_upsert": total_upsert,

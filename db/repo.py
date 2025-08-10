@@ -108,6 +108,102 @@ def link_paper_category(paper_id: int, category_name: str) -> None:
     db.from_("paper_categories").insert({"paper_id": paper_id, "category_id": category_id}).execute()
 
 
+def count_papers_by_date_category(date: str | dt.date, category: str) -> int:
+    """快速计数：仅检查papers表中指定日期的论文数量（用于优化搜索性能）"""
+    db = app_schema()
+    date_str = _ensure_date(date)
+    
+    try:
+        # 🚀 优化：只查papers表，不join categories，大幅提速
+        result = (
+            db.from_("papers")
+            .select("*", count="exact")
+            .eq("update_date", date_str)
+            .execute()
+        )
+        return result.count or 0
+    except Exception:
+        return 0
+
+
+def get_arxiv_ids_from_api(date: str | dt.date, category: str) -> List[str]:
+    """轻量级ArXiv API调用：只获取arxiv_id列表（用于智能导入判断）"""
+    import feedparser
+    import requests
+    import datetime as dt
+    import pytz
+    
+    target_date = dt.datetime.strptime(str(date), "%Y-%m-%d").date() if isinstance(date, str) else date
+    et_tz = pytz.timezone("US/Eastern")
+    
+    start_et = et_tz.localize(dt.datetime.combine(target_date - dt.timedelta(days=1), dt.time(20, 0)))
+    end_et = et_tz.localize(dt.datetime.combine(target_date, dt.time(20, 0)))
+    start_utc = start_et.astimezone(dt.timezone.utc)
+    end_utc = end_et.astimezone(dt.timezone.utc)
+    
+    start_date_str = start_utc.strftime("%Y%m%d%H%M%S")
+    end_date_str = end_utc.strftime("%Y%m%d%H%M%S")
+    
+    url = (
+        f"https://export.arxiv.org/api/query?"
+        f"search_query=cat:{category}+AND+submittedDate:[{start_date_str}+TO+{end_date_str}]&"
+        "sortBy=submittedDate&sortOrder=descending&max_results=2000"
+    )
+    
+    try:
+        resp = requests.get(url, timeout=15)
+        resp.raise_for_status()
+        feed = feedparser.parse(resp.text)
+        
+        arxiv_ids = []
+        for entry in feed.entries:
+            # 快速解析ID，不处理其他字段
+            import re
+            candidates = [getattr(entry, "id", ""), getattr(entry, "link", "")]
+            for candidate in candidates:
+                m = re.search(r"/abs/([0-9]{4}\.[0-9]{5}(v\d+)?)(?:[?#].*)?$", candidate)
+                if m:
+                    arxiv_ids.append(m.group(1))
+                    break
+        
+        print(f"[智能导入] ArXiv API返回 {len(arxiv_ids)} 个ID")
+        return arxiv_ids
+    except Exception as e:
+        print(f"[智能导入] ArXiv API调用失败: {e}")
+        return []
+
+
+def get_existing_arxiv_ids_by_date(date: str | dt.date, arxiv_ids: List[str]) -> List[str]:
+    """高效检查：指定日期下已存在的arxiv_id列表"""
+    if not arxiv_ids:
+        return []
+    
+    db = app_schema()
+    date_str = _ensure_date(date)
+    
+    try:
+        # 分批查询，避免IN子句过长
+        existing_ids = []
+        chunk_size = 100
+        for i in range(0, len(arxiv_ids), chunk_size):
+            chunk = arxiv_ids[i:i + chunk_size]
+            result = (
+                db.from_("papers")
+                .select("arxiv_id")
+                .eq("update_date", date_str)
+                .in_("arxiv_id", chunk)
+                .execute()
+                .data
+            )
+            existing_ids.extend([r["arxiv_id"] for r in result])
+        
+        print(f"[智能导入] DB中已存在 {len(existing_ids)}/{len(arxiv_ids)} 个ID")
+        return existing_ids
+    except Exception as e:
+        print(f"[智能导入] DB检查失败: {e}")
+        return []
+
+
 def list_papers_by_date_category(date: str | dt.date, category: str) -> List[Dict[str, Any]]:
     db = app_schema()
     date_str = _ensure_date(date)

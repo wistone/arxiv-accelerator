@@ -24,6 +24,11 @@ from auto_commit_github_api import GitHubAutoCommit
 from db import repo as db_repo
 from import_arxiv_to_db import import_arxiv_papers_to_db
 
+# 📦 简单的内存缓存（生产环境可用Redis）
+_search_cache = {}
+_cache_expiry = {}
+CACHE_TTL = 300  # 5分钟缓存
+
 app = Flask(__name__)
 CORS(app)  # 允许跨域请求
 
@@ -58,7 +63,11 @@ def health_check():
 
 @app.route('/api/search_articles', methods=['POST'])
 def search_articles():
+    import time
+    
     try:
+        total_start = time.time()
+        
         data = request.get_json()
         selected_date = data.get('date')
         selected_category = data.get('category', 'cs.CV')
@@ -66,20 +75,101 @@ def search_articles():
         if not selected_date:
             return jsonify({'error': '请选择日期'}), 400
 
-        # 1) 直接通过 arXiv API 抓取并写入数据库（已存在的arxiv_id自动跳过）
-        try:
-            stats = import_arxiv_papers_to_db(selected_date, selected_category, limit=None, skip_if_exists=True)
-            print(f"import_arxiv_papers_to_db 完成: {stats}")
-        except Exception as e:
-            # 抓取或写库失败不应崩溃接口，继续尝试读取数据库（可能已有历史数据）
-            print(f"写入数据库过程中出错（将继续从DB读取）: {e}")
+        print(f"🚀 [搜索性能] 开始搜索 | date={selected_date} category={selected_category}")
+
+        # 🚀 新策略：基于时间的智能缓存（而非完全跳过API）
+        import_time = 0
+        stats = {'processed': 0, 'total_upsert': 0}
+        current_time = time.time()
+        
+        # 检查最近是否已经导入过（短时间缓存）
+        import_cache_key = f"import_{selected_date}_{selected_category}"
+        should_skip_import = False
+        
+        if import_cache_key in _cache_expiry:
+            if current_time < _cache_expiry[import_cache_key]:
+                # 30分钟内已导入过，跳过ArXiv API
+                should_skip_import = True
+                print(f"⚡ [搜索性能] 30分钟内已导入，跳过ArXiv API调用")
+        
+        # 初始化变量
+        import_time = 0
+        stats = {'processed': 0, 'total_upsert': 0}
+        
+        if not should_skip_import:
+            # 🚀 新策略：智能检查是否真的需要导入
+            smart_check_start = time.time()
+            
+            # 1) 先获取ArXiv API数据（轻量级，只获取ID列表）
+            arxiv_ids = db_repo.get_arxiv_ids_from_api(selected_date, selected_category)
+            api_check_time = time.time() - smart_check_start
+            print(f"⏱️  [搜索性能] ArXiv API ID检查完成，耗时: {api_check_time:.2f}s | ArXiv返回 {len(arxiv_ids)} 条")
+            
+            if not arxiv_ids:
+                print(f"📭 [搜索性能] ArXiv API无数据，跳过导入")
+                import_time = 0
+            else:
+                # 2) 检查数据库中已有的arxiv_id
+                db_check_start = time.time()
+                existing_ids = db_repo.get_existing_arxiv_ids_by_date(selected_date, arxiv_ids)
+                db_check_time = time.time() - db_check_start
+                print(f"⏱️  [搜索性能] DB ID检查完成，耗时: {db_check_time:.2f}s | DB已有 {len(existing_ids)} 条")
+                
+                missing_ids = set(arxiv_ids) - set(existing_ids)
+                
+                if not missing_ids:
+                    # 所有数据都已存在，完全跳过导入
+                    print(f"⚡ [搜索性能] 所有数据已存在，完全跳过导入流程")
+                    import_time = 0
+                    stats = {'processed': len(existing_ids), 'total_upsert': 0}
+                else:
+                    # 只导入缺失的数据
+                    print(f"📥 [搜索性能] 发现 {len(missing_ids)} 条新数据，开始增量导入")
+                    try:
+                        import_start = time.time()
+                        stats = import_arxiv_papers_to_db(selected_date, selected_category, limit=None, skip_if_exists=True)
+                        import_time = time.time() - import_start
+                        print(f"⏱️  [搜索性能] 增量导入完成，耗时: {import_time:.2f}s | processed={stats.get('processed', 0)} upserted={stats.get('total_upsert', 0)}")
+                    except Exception as e:
+                        import_time = time.time() - import_start if 'import_start' in locals() else 0
+                        print(f"❌ [搜索性能] 导入失败，耗时: {import_time:.2f}s | 错误: {e}")
+                
+                # 设置导入缓存（30分钟）
+                _cache_expiry[import_cache_key] = current_time + 1800
 
         # 2) 从数据库读取并返回给前端（保持原协议字段）
+        # 🚀 缓存策略：检查缓存
+        cache_key = f"{selected_date}_{selected_category}"
+        
+        if cache_key in _search_cache and cache_key in _cache_expiry:
+            if current_time < _cache_expiry[cache_key]:
+                print(f"⚡ [搜索性能] 缓存命中，跳过DB查询 | key={cache_key}")
+                cached_data = _search_cache[cache_key]
+                return jsonify({
+                    'success': True,
+                    'articles': cached_data['articles'],
+                    'total': cached_data['total'],
+                    'date': selected_date,
+                    'category': selected_category,
+                    'performance': {
+                        'total_time': round(time.time() - total_start, 2),
+                        'import_time': import_time,
+                        'db_read_time': 0.0,  # 缓存命中
+                        'cache_hit': True
+                    },
+                    'debug': cached_data.get('debug')
+                })
+        
+        # 缓存未命中，查询数据库
         try:
+            db_start = time.time()
+            print(f"🔍 [搜索性能] 开始DB查询 | key={cache_key}")
             articles = db_repo.list_papers_by_date_category(selected_date, selected_category)
+            db_time = time.time() - db_start
             # 额外调试日志：对比导入统计与DB返回数量
             imported = stats.get('processed') if isinstance(locals().get('stats'), dict) else None
             upserted = stats.get('total_upsert') if isinstance(locals().get('stats'), dict) else None
+            print(f"⏱️  [搜索性能] DB读取完成，耗时: {db_time:.2f}s | 获取 {len(articles)} 条记录")
             print(f"DB读取 {len(articles)} 条 | date={selected_date} category={selected_category} | 导入processed={imported} upserted={upserted}")
             if imported is not None and len(articles) != imported:
                 sample_ids = [a.get('id') for a in articles[:5]]
@@ -99,12 +189,31 @@ def search_articles():
                 'error': f'当天没有新的{selected_category}论文被提交到arXiv，或数据尚未同步。请稍后重试。'
             }), 404
 
+        # 🚀 更新缓存
+        cache_data = {
+            'articles': articles,
+            'total': len(articles),
+            'debug': debug_log if 'debug_log' in locals() else None
+        }
+        _search_cache[cache_key] = cache_data
+        _cache_expiry[cache_key] = current_time + CACHE_TTL
+        print(f"📦 [搜索性能] 缓存已更新 | key={cache_key} ttl={CACHE_TTL}s")
+
+        total_time = time.time() - total_start
+        print(f"🏁 [搜索性能] 总耗时: {total_time:.2f}s | 导入:{import_time:.2f}s + DB读取:{db_time:.2f}s")
+
         return jsonify({
             'success': True,
             'articles': articles,
             'total': len(articles),
             'date': selected_date,
             'category': selected_category,
+            'performance': {
+                'total_time': round(total_time, 2),
+                'import_time': round(import_time, 2),
+                'db_read_time': round(db_time, 2),
+                'cache_hit': False
+            },
             'debug': debug_log if 'debug_log' in locals() else None
         })
 
