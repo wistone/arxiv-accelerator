@@ -8,3 +8,4 @@ requests>=2.25.0
 tabulate>=0.8.0
 pdfminer.six>=20211012
 pytz>=2021.1 
+supabase>=2.6.0 

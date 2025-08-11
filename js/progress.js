@@ -66,18 +66,26 @@ function updateProgress(data) {
                 document.getElementById('currentAnalysis').textContent = analysis_result;
             }
         } else {
-            document.getElementById('currentAnalysis').textContent = '正在分析...';
+            // 检查是否是特殊状态（如获取机构信息）
+            if (status === 'fetching_affiliations' && paper.status) {
+                document.getElementById('currentAnalysis').textContent = paper.status; // 显示 "正在获取作者机构..."
+            } else {
+                document.getElementById('currentAnalysis').textContent = '正在分析...';
+            }
         }
     }
 }
 
-function startSSEConnection(selectedDate, selectedCategory, testCount) {
+function startSSEConnection(selectedDate, selectedCategory, testCount, rangeType) {
     // 清理之前的连接
     if (window.AppState.currentEventSource) {
         window.AppState.currentEventSource.close();
     }
 
     console.log('🔌 启动SSE连接...');
+    
+    // 保存当前分析的范围类型
+    window.AppState.currentAnalysisRange = rangeType || 'full';
     
     // 使用Server-Sent Events获取实时进度
     window.AppState.currentEventSource = new EventSource(`/api/analysis_progress?date=${selectedDate}&category=${selectedCategory}&test_count=${testCount || ''}`);
@@ -92,17 +100,16 @@ function startSSEConnection(selectedDate, selectedCategory, testCount) {
 
     window.AppState.currentEventSource.onerror = function(event) {
         console.error('SSE连接错误:', event);
-        console.log('🔄 SSE连接中断，将使用备用检查机制');
+        console.log('🔄 SSE连接中断，等待重新连接...');
         
-        // 更新进度显示
+        // 更新进度显示，但不立即启动故障转移
         const progressText = document.getElementById('progressText');
-        if (progressText) {
-            progressText.textContent += ' | 连接中断，使用备用监控...';
+        if (progressText && !progressText.textContent.includes('连接中断')) {
+            progressText.textContent += ' | 连接中断，重连中...';
         }
         
-        // 关闭当前连接
-        window.AppState.currentEventSource.close();
-        window.AppState.currentEventSource = null;
+        // 不立即关闭连接，让浏览器自动重连
+        // 故障转移机制会在后台独立运行
     };
 
     window.AppState.currentEventSource.addEventListener('complete', function(event) {
@@ -128,60 +135,73 @@ function startProgressFallbackCheck(selectedDate, selectedCategory) {
 
     console.log('🔄 启动故障转移进度检查机制...');
     
-    // 每5秒检查一次进度（备用机制）
+    // 每15秒检查一次进度（备用机制），减少频繁检查
     window.AppState.progressCheckInterval = setInterval(async () => {
         try {
-            // 检查是否长时间没有收到更新（超过30秒）
+            // 检查是否长时间没有收到更新（超过60秒）
             const timeSinceLastUpdate = Date.now() - window.AppState.lastProgressUpdate;
-            if (timeSinceLastUpdate > 30000) {
+            if (timeSinceLastUpdate > 60000) {
                 console.log('⚠️  长时间无进度更新，使用故障转移检查...');
                 await checkAnalysisStatus(selectedDate, selectedCategory);
             }
         } catch (error) {
             console.error('故障转移进度检查失败:', error);
         }
-    }, 5000);
+    }, 15000);  // 每15秒检查一次
 }
 
 async function checkAnalysisStatus(selectedDate, selectedCategory) {
     try {
-        // 尝试获取分析结果来检查是否完成
-        const response = await fetch('/api/get_analysis_results', {
+        // 使用专门的状态检查接口，而不是结果获取接口
+        const response = await fetch('/api/check_analysis_exists', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
                 date: selectedDate, 
-                category: selectedCategory, 
-                range_type: 'full' 
+                category: selectedCategory
             })
         });
 
         if (response.ok) {
             const data = await response.json();
-            console.log('✅ 故障转移检查发现分析已完成!');
+            console.log('📊 故障转移检查状态:', data);
             
-            // 分析已完成，直接跳转到结果页面
-            const completionData = {
-                summary: `分析完成！共处理 ${data.total} 篇论文`,
-                completed_range_type: 'full'
-            };
-            
-            onAnalysisComplete(completionData);
-            stopAllConnections();
-        } else {
-            // 分析还在进行中
-            console.log('📊 故障转移检查：分析仍在进行中...');
-            
-            // 更新显示时间信息
-            const elapsed = Math.floor((Date.now() - window.AppState.analysisStartTime) / 1000);
-            const minutes = Math.floor(elapsed / 60);
-            const seconds = elapsed % 60;
-            
-            const progressText = document.getElementById('progressText');
-            if (progressText && !progressText.textContent.includes('已运行')) {
-                const currentText = progressText.textContent.split(' | 已运行:')[0];
-                progressText.textContent = `${currentText} | 已运行: ${minutes}分${seconds}秒`;
+            // 只有当所有论文都分析完成时才认为完成
+            if (data.all_analyzed && data.total > 0) {
+                console.log('✅ 故障转移检查发现分析已完成!');
+                
+                // 分析已完成，直接跳转到结果页面
+                const completionData = {
+                    summary: `分析完成！共处理 ${data.total} 篇论文`,
+                    completed_range_type: window.AppState.currentAnalysisRange || 'full'
+                };
+                
+                onAnalysisComplete(completionData);
+                stopAllConnections();
+            } else {
+                // 分析还在进行中
+                console.log(`📊 故障转移检查：分析仍在进行中... (${data.completed}/${data.total})`);
+                
+                // 更新显示时间信息和进度
+                const elapsed = Math.floor((Date.now() - window.AppState.analysisStartTime) / 1000);
+                const minutes = Math.floor(elapsed / 60);
+                const seconds = elapsed % 60;
+                
+                const progressText = document.getElementById('progressText');
+                if (progressText) {
+                    const baseText = `分析进行中 ${data.completed}/${data.total} 篇论文`;
+                    progressText.textContent = `${baseText} | 已运行: ${minutes}分${seconds}秒`;
+                }
+                
+                // 更新进度条
+                const progress = data.total > 0 ? (data.completed / data.total) * 100 : 0;
+                const progressBarFill = document.getElementById('progressBarFill');
+                if (progressBarFill) {
+                    progressBarFill.style.width = progress + '%';
+                }
             }
+        } else {
+            console.log('📊 故障转移检查失败，继续等待...');
         }
     } catch (error) {
         console.error('故障转移状态检查失败:', error);
@@ -213,6 +233,6 @@ async function onAnalysisComplete(data) {
     // 立即关闭弹窗并加载新表格
     closeModal();
     // 使用完成的分析范围类型来加载结果
-    const completedRangeType = data.completed_range_type || 'full';
+    const completedRangeType = data.completed_range_type || window.AppState.currentAnalysisRange || 'full';
     await loadAnalysisResults(completedRangeType);
 }

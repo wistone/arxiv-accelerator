@@ -3,6 +3,7 @@
  */
 
 function showLoading() {
+    // 页面局部loading
     document.getElementById('loading').style.display = 'block';
     document.getElementById('error').style.display = 'none';
     document.getElementById('success').style.display = 'none';
@@ -12,6 +13,22 @@ function showLoading() {
 
 function hideLoading() {
     document.getElementById('loading').style.display = 'none';
+    const overlay = document.getElementById('overlayLoading');
+    if (overlay) overlay.style.display = 'none';
+}
+
+function showOverlayLoading() {
+    const overlay = document.getElementById('overlayLoading');
+    if (overlay) {
+        overlay.style.display = 'flex';
+    }
+}
+
+function hideOverlayLoading() {
+    const overlay = document.getElementById('overlayLoading');
+    if (overlay) {
+        overlay.style.display = 'none';
+    }
 }
 
 function showError(message) {
@@ -48,6 +65,27 @@ function closeModal() {
     
     // 隐藏弹窗
     document.getElementById('analysisModal').style.display = 'none';
+}
+
+// 设置按钮loading状态（禁用+文案切换）
+function setButtonLoading(buttonId, isLoading, loadingText = '处理中...') {
+    const btn = document.getElementById(buttonId);
+    if (!btn) return;
+    if (isLoading) {
+        if (!btn.dataset.originalText) {
+            btn.dataset.originalText = btn.innerText;
+        }
+        btn.innerText = loadingText;
+        btn.disabled = true;
+        btn.classList.add('disabled');
+    } else {
+        if (btn.dataset.originalText) {
+            btn.innerText = btn.dataset.originalText;
+            delete btn.dataset.originalText;
+        }
+        btn.disabled = false;
+        btn.classList.remove('disabled');
+    }
 }
 
 // 初始化页面事件监听器

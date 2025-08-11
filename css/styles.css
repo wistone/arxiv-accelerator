@@ -1,3 +1,92 @@
+/* 全局遮罩 Loading */
+.overlay-loading {
+  position: fixed;
+  inset: 0;
+  background: rgba(255,255,255,0.85);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+.overlay-loading .spinner {
+  width: 56px;
+  height: 56px;
+  border: 6px solid #e9e9ee;
+  border-top-color: #6c63ff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+.overlay-loading .loading-text {
+  margin-top: 16px;
+  color: #5c6670;
+  font-size: 20px;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 弹窗内：范围选择 + 两个按钮 同一行 */
+.test-options-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.test-options-row label { 
+  white-space: nowrap; 
+  display: flex;
+  align-items: center;
+  height: 44px;
+  margin: 0;
+}
+.test-options-row select#testCount { 
+  width: 200px; 
+  height: 44px; 
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+/* 弹窗内两个操作按钮：不等宽，但高度统一 */
+#startAnalysisBtn,
+#showExistingBtn {
+  min-width: 160px;
+  height: 44px;  /* 统一高度为44px，与选择框一致 */
+  padding: 0 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;  /* 重置行高 */
+  font-size: 16px;
+}
+
+/* 统一按钮颜色：可点紫色，不可点灰色 */
+.btn.btn-primary,
+.button-group .btn,
+.controls .btn {
+  background: linear-gradient(135deg, #7e6bff, #7e6bff);
+  color: #fff;
+  border: none;
+}
+.btn.btn-primary:hover,
+.button-group .btn:hover,
+.controls .btn:hover { opacity: 0.95; }
+.btn.btn-primary.disabled, .btn.btn-primary:disabled {
+  background: #9aa0a6;
+  cursor: not-allowed;
+}
+
+/* 分析主按钮在可点时不变灰 */
+#analyzeBtn.btn.btn-primary:hover:enabled {
+  background: linear-gradient(135deg, #7e6bff, #7e6bff);
+}
+
+
+.analysis-status {
+  margin-top: 10px;
+  font-size: 14px;
+  color: #666;
+}
 /* Arxiv文章初筛小助手 - 主样式表 */
 
 * {
