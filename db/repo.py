@@ -821,42 +821,5 @@ def upsert_paper_categories_bulk(pairs: List[Tuple[int, int]]) -> None:
                     pass
 
 
-def list_existing_analyses_for_prompt(paper_ids: List[int], prompt_id: str) -> List[int]:
-    """返回已存在分析结果的 paper_id 列表（指定 prompt）。"""
-    db = app_schema()
-    if not paper_ids:
-        return []
-    result: List[int] = []
-    chunk_size = 1000
-    for i in range(0, len(paper_ids), chunk_size):
-        chunk = paper_ids[i:i + chunk_size]
-        rows = (
-            db.from_("analysis_results")
-            .select("paper_id")
-            .eq("prompt_id", prompt_id)
-            .in_("paper_id", chunk)
-            .execute()
-            .data
-        )
-        result.extend([r["paper_id"] for r in rows])
-    return result
 
-
-def insert_analysis_results_bulk(rows: List[Dict[str, Any]]) -> None:
-    """批量 upsert analysis_results（按 unique (paper_id, prompt_id)）。"""
-    db = app_schema()
-    if not rows:
-        return
-    try:
-        db.from_("analysis_results").upsert(rows, on_conflict="paper_id,prompt_id").execute()
-    except Exception:
-        # 退化为分块 insert，遇到重复由唯一键保护
-        chunk_size = 1000
-        for i in range(0, len(rows), chunk_size):
-            chunk = rows[i:i + chunk_size]
-            try:
-                db.from_("analysis_results").insert(chunk).execute()
-            except Exception:
-                # 忽略重复错误
-                pass
 
