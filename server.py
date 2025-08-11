@@ -18,7 +18,7 @@ except ImportError:
     print("⚠️  python-dotenv未安装，使用系统环境变量")
 
 # from crawl_raw_info import crawl_arxiv_papers  # 已删除，改用import_arxiv_to_db
-from paper_analysis_processor import analyze_paper, parse_markdown_table, generate_analysis_markdown, generate_analysis_fail_markdown
+from paper_analysis_processor import analyze_paper # 只导入必要的analyze_paper
 from doubao_client import DoubaoClient
 # from auto_commit_github_api import GitHubAutoCommit  # 已删除，改用数据库存储
 from db import repo as db_repo
@@ -237,132 +237,15 @@ def search_articles():
     except Exception as e:
         return jsonify({'error': f'服务器错误: {str(e)}'}), 500
 
-def parse_markdown_file(filepath, category_filter=''):
-    """解析markdown文件并提取文章信息"""
-    articles = []
-    
-    try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        # 分割表格行
-        lines = content.strip().split('\n')
-        
-        # 跳过标题行和分隔行
-        data_lines = []
-        for line in lines:
-            if line.startswith('|') and not line.startswith('|------'):
-                data_lines.append(line)
-        
-        # 解析每一行数据
-        for i, line in enumerate(data_lines[1:], 1):  # 跳过表头
-            parts = [part.strip() for part in line.split('|')[1:-1]]  # 去掉首尾的 |
-            
-            if len(parts) >= 6:
-                try:
-                    number = int(parts[0])
-                    number_id = parts[1]
-                    title = parts[2]
-                    authors = parts[3]
-                    abstract = parts[4]
-                    link = parts[5]
-                    
-                    # 不再进行类别筛选，因为文件已经是按类别生成的
-                    
-                    articles.append({
-                        'number': number,
-                        'id': number_id,
-                        'title': title,
-                        'authors': authors,
-                        'abstract': abstract,
-                        'link': link
-                    })
-                except (ValueError, IndexError):
-                    continue
-    
-    except Exception as e:
-        print(f"解析文件 {filepath} 时出错: {e}")
-    
-    return articles
+# def parse_markdown_file(filepath, category_filter=''):
+#     """⚠️ 已废弃：解析markdown文件并提取文章信息（已改用数据库）"""
 
-@app.route('/api/analyze_articles', methods=['POST'])
-def analyze_articles():
-    try:
-        data = request.get_json()
-        selected_date = data.get('date')
-        
-        if not selected_date:
-            return jsonify({'error': '请选择日期'}), 400
-        
-        # 构建文件名
-        date_obj = datetime.strptime(selected_date, '%Y-%m-%d')
-        filename = f"{date_obj.strftime('%Y-%m-%d')}-result.md"
-        filepath = os.path.join('log', filename)
-        
-        if not os.path.exists(filepath):
-            return jsonify({'error': f'未找到 {selected_date} 的数据文件'}), 404
-        
-        # 读取文章进行简单分析
-        articles = parse_markdown_file(filepath)
-        
-        # 简单的分析逻辑
-        analysis = analyze_articles_data(articles)
-        
-        return jsonify({
-            'success': True,
-            'analysis': analysis,
-            'total_articles': len(articles)
-        })
-        
-    except Exception as e:
-        return jsonify({'error': f'服务器错误: {str(e)}'}), 500
+# @app.route('/api/analyze_articles', methods=['POST'])
+# def analyze_articles():
+#     """⚠️ 已废弃：基于Markdown文件的旧分析路由（已改用 /api/analyze_papers）"""
 
-def analyze_articles_data(articles):
-    """分析文章数据"""
-    if not articles:
-        return {
-            'top_keywords': [],
-            'research_areas': [],
-            'summary': '没有找到文章数据'
-        }
-    
-    # 提取关键词（简单的实现）
-    all_text = ' '.join([article['title'] + ' ' + article['abstract'] for article in articles])
-    
-    # 常见的研究领域关键词
-    keywords = {
-        'computer vision': ['vision', 'image', 'detection', 'segmentation', 'recognition'],
-        'machine learning': ['learning', 'neural', 'network', 'model', 'training'],
-        'deep learning': ['deep', 'neural', 'transformer', 'attention'],
-        'robotics': ['robot', 'control', 'navigation', 'manipulation'],
-        'natural language processing': ['language', 'text', 'nlp', 'translation'],
-        'audio processing': ['audio', 'speech', 'sound', 'acoustic']
-    }
-    
-    # 统计关键词出现次数
-    keyword_counts = {}
-    for area, area_keywords in keywords.items():
-        count = sum(1 for keyword in area_keywords if keyword.lower() in all_text.lower())
-        if count > 0:
-            keyword_counts[area] = count
-    
-    # 排序获取热门领域
-    top_areas = sorted(keyword_counts.items(), key=lambda x: x[1], reverse=True)[:3]
-    
-    # 提取常见词汇
-    words = re.findall(r'\b\w+\b', all_text.lower())
-    word_freq = {}
-    for word in words:
-        if len(word) > 3 and word not in ['the', 'and', 'for', 'with', 'this', 'that', 'from', 'have', 'been', 'they', 'their']:
-            word_freq[word] = word_freq.get(word, 0) + 1
-    
-    top_keywords = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)[:10]
-    
-    return {
-        'top_keywords': [word for word, count in top_keywords],
-        'research_areas': [area for area, count in top_areas],
-        'summary': f'分析了 {len(articles)} 篇文章，主要研究方向包括：{", ".join([area for area, count in top_areas])}。热门关键词：{", ".join([word for word, count in top_keywords[:5]])}。'
-    }
+# def analyze_articles_data(articles):
+#     """⚠️ 已废弃：简单关键词统计分析（已改用AI模型分析）"""
 
 @app.route('/api/check_analysis_exists', methods=['POST'])
 def check_analysis_exists():
@@ -730,106 +613,11 @@ def get_analysis_results():
     except Exception as e:
         return jsonify({'error': f'服务器错误: {str(e)}'}), 500
 
-def parse_analysis_fail_file(filepath):
-    """解析分析失败markdown文件"""
-    fail_info = {
-        'total_papers': 0,
-        'error_count': 0,
-        'fail_time': '',
-        'papers': []
-    }
-    
-    try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        # 提取失败信息
-        lines = content.split('\n')
-        for line in lines:
-            if '**总计论文数**:' in line:
-                fail_info['total_papers'] = int(line.split(':')[1].strip())
-            elif '**失败数**:' in line:
-                fail_info['error_count'] = int(line.split(':')[1].strip())
-            elif '**失败时间**:' in line:
-                fail_info['fail_time'] = line.split(':', 1)[1].strip()
-        
-        # 解析论文列表（如果需要）
-        data_lines = []
-        for line in lines:
-            if line.startswith('|') and not line.startswith('|------') and '错误信息' not in line:
-                data_lines.append(line)
-        
-        # 解析论文数据行
-        for line in data_lines:
-            parts = [part.strip() for part in line.split('|')[1:-1]]  # 去掉首尾的 |
-            if len(parts) >= 6:
-                paper = {
-                    'no': parts[0],
-                    'error_msg': parts[1],
-                    'title': parts[2],
-                    'authors': parts[3],
-                    'abstract': parts[4],
-                    'link': parts[5]
-                }
-                fail_info['papers'].append(paper)
-        
-        return fail_info
-        
-    except Exception as e:
-        print(f"解析失败文件出错: {e}")
-        return fail_info
+# def parse_analysis_fail_file(filepath):
+#     """⚠️ 已废弃：解析分析失败markdown文件（已改用数据库）"""
 
-def parse_analysis_markdown_file(filepath):
-    """解析分析结果markdown文件"""
-    articles = []
-    
-    try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        # 分割表格行
-        lines = content.strip().split('\n')
-        
-        # 跳过标题行和分隔行
-        data_lines = []
-        for line in lines:
-            if line.startswith('|') and not line.startswith('|------'):
-                data_lines.append(line)
-        
-        # 解析每一行数据
-        for i, line in enumerate(data_lines[1:], 1):  # 跳过表头
-            parts = [part.strip() for part in line.split('|')[1:-1]]  # 去掉首尾的 |
-            
-            if len(parts) >= 6:
-                try:
-                    number = int(parts[0])
-                    analysis_result = parts[1].replace('\\|', '|')  # 还原转义的管道符
-                    title = parts[2].replace('\\|', '|')
-                    authors = parts[3].replace('\\|', '|')
-                    abstract = parts[4].replace('\\|', '|')
-                    link = parts[5].replace('\\|', '|')
-                    
-                    # 处理新的 author_affiliation 字段（第7列）
-                    author_affiliation = ""
-                    if len(parts) >= 7:
-                        author_affiliation = parts[6].replace('\\|', '|')
-                    
-                    articles.append({
-                        'number': number,
-                        'analysis_result': analysis_result,
-                        'title': title,
-                        'authors': authors,
-                        'abstract': abstract,
-                        'link': link,
-                        'author_affiliation': author_affiliation
-                    })
-                except (ValueError, IndexError):
-                    continue
-    
-    except Exception as e:
-        print(f"解析分析结果文件 {filepath} 时出错: {e}")
-    
-    return articles
+# def parse_analysis_markdown_file(filepath):
+#     """⚠️ 已废弃：解析分析结果markdown文件（已改用数据库）"""
 
 @app.route('/api/available_dates', methods=['GET'])
 def get_available_dates():
