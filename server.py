@@ -18,11 +18,11 @@ except ImportError:
     print("⚠️  python-dotenv未安装，使用系统环境变量")
 
 # 导入重构后的服务层
-from services.analysis_service import analyze_paper
-from services.arxiv_service import import_arxiv_papers
-from services.affiliation_service import get_author_affiliations, clear_affiliation_cache
-from clients.ai_client import DoubaoClient
-from db import repo as db_repo
+from backend.services.analysis_service import analyze_paper
+from backend.services.arxiv_service import import_arxiv_papers
+from backend.services.affiliation_service import get_author_affiliations, clear_affiliation_cache
+from backend.clients.ai_client import DoubaoClient
+from backend.db import repo as db_repo
 
 # 向后兼容的别名
 import_arxiv_papers_to_db = import_arxiv_papers
@@ -38,12 +38,12 @@ CORS(app)  # 允许跨域请求
 # 配置静态文件路由，允许访问js目录下的文件
 @app.route('/js/<path:filename>')
 def serve_js_files(filename):
-    return send_from_directory('js', filename)
+    return send_from_directory('frontend/js', filename)
 
 # 配置静态文件路由，允许访问css目录下的文件
 @app.route('/css/<path:filename>')
 def serve_css_files(filename):
-    return send_from_directory('css', filename)
+    return send_from_directory('frontend/css', filename)
 
 # 全局变量用于跟踪分析进度
 analysis_progress = {}

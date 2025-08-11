@@ -17,7 +17,7 @@ def extract_arxiv_id_from_url(url: str) -> str:
     从 arXiv 链接中提取 arXiv ID
     
     Args:
-        url: arXiv 论文链接
+        url: arXiv 论文链接 (支持 abs 和 pdf 格式)
         
     Returns:
         str: arXiv ID (如 2507.23785v1)
@@ -26,13 +26,23 @@ def extract_arxiv_id_from_url(url: str) -> str:
         ValueError: 无法解析时抛出异常
     """
     url = url.strip()
-    pattern = r'/abs/([^/\s]+)/?$'
-    match = re.search(pattern, url)
     
-    if match:
-        return match.group(1)
-    else:
-        raise ValueError(f"无法从URL中提取arxiv_id: {url}")
+    # 支持多种 arXiv URL 格式
+    patterns = [
+        r'/abs/([^/\s]+)/?$',        # https://arxiv.org/abs/2508.01415v2
+        r'/pdf/([^/\s]+)(?:\.pdf)?/?$'  # https://arxiv.org/pdf/2508.01415v2.pdf 或 https://arxiv.org/pdf/2508.01415v2
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            arxiv_id = match.group(1)
+            # 移除可能的.pdf后缀
+            if arxiv_id.endswith('.pdf'):
+                arxiv_id = arxiv_id[:-4]
+            return arxiv_id
+    
+    raise ValueError(f"无法从URL中提取arxiv_id: {url}")
 
 
 def extract_first_page_text(pdf_content: bytes, max_chars: int = 2000) -> str:

@@ -14,7 +14,7 @@ import feedparser
 import pytz
 import requests
 
-from db import repo as db_repo
+from backend.db import repo as db_repo
 
 
 def _extract_arxiv_id(entry: Any) -> Optional[str]:
@@ -211,7 +211,7 @@ def import_arxiv_papers(
             arxiv_to_paper_id.update(db_repo.upsert_papers_bulk(items_for_write))
         else:
             # 覆盖更新：直接 upsert 全量，再查询映射
-            from db.client import app_schema
+            from backend.db.client import app_schema
             app_schema().from_("papers").upsert(items_for_write, on_conflict="arxiv_id").execute()
             arxiv_to_paper_id.update({r["arxiv_id"]: r["paper_id"] for r in db_repo.get_papers_by_arxiv_ids(all_ids)})
 
@@ -220,7 +220,7 @@ def import_arxiv_papers(
     #  - 补建分类关联
     if skip_if_exists and existing_set:
         try:
-            from db.client import app_schema
+            from backend.db.client import app_schema
             app_schema().from_("papers").update({"update_date": target_date_str}).in_("arxiv_id", list(existing_set)).execute()
         except Exception as e:
             print(f"轻量更新 existing papers.update_date 失败: {e}")

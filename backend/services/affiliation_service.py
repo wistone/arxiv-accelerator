@@ -11,9 +11,9 @@ import re
 import time
 from typing import List, Optional, Callable
 
-from clients.ai_client import DoubaoClient
-from clients.arxiv_client import download_arxiv_pdf
-from utils.pdf_parser import extract_first_page_text
+from backend.clients.ai_client import DoubaoClient
+from backend.clients.arxiv_client import download_arxiv_pdf
+from backend.utils.pdf_parser import extract_first_page_text
 
 
 def load_affiliation_prompt() -> str:
@@ -26,8 +26,8 @@ def load_affiliation_prompt() -> str:
     Raises:
         Exception: 读取失败时抛出异常
     """
-    # 获取脚本所在目录
-    script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    # 获取项目根目录 (backend/services -> backend -> root)
+    script_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     prompt_path = os.path.join(script_dir, 'prompt', 'author_affliation_prompt.md')
     
     try:

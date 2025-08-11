@@ -9,7 +9,7 @@ import requests
 import time
 from typing import Tuple
 
-from utils.pdf_parser import extract_arxiv_id_from_url
+from backend.utils.pdf_parser import extract_arxiv_id_from_url
 
 
 def download_arxiv_pdf(arxiv_url: str) -> bytes:
