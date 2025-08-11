@@ -238,25 +238,34 @@ def import_arxiv_papers_to_db(
         print(f"获取paper映射失败: {e}")
     # 对于 skip_if_exists=true 的情形，已有的也需要映射（用于后续关联时若你将来想保留，但当前逻辑保持与旧实现一致：跳过已有，不再做关联）
 
-    # 4) 批量 upsert categories 并建立关联（仅对新写入的 paper）
-    # 对“当日解析到的全部 arxiv”补建类别关联
-    target_arxiv_ids = set(r["arxiv_id"] for r in parsed_items)
-    all_category_names: List[str] = []
-    for aid in target_arxiv_ids:
-        all_category_names.extend(arxiv_to_categories.get(aid, []))
-    cat_name_to_id = db_repo.upsert_categories_bulk(all_category_names) if all_category_names else {}
+    # 4) 🚀 优化：仅为新写入的论文建立分类关联
+    if items_for_write:  # 只有新论文时才处理分类关联
+        new_arxiv_ids = {r["arxiv_id"] for r in items_for_write}
+        print(f"⏱️  [导入性能] 仅为 {len(new_arxiv_ids)} 条新论文建立分类关联")
+        
+        # 仅收集新论文的分类
+        new_category_names: List[str] = []
+        for aid in new_arxiv_ids:
+            new_category_names.extend(arxiv_to_categories.get(aid, []))
+        cat_name_to_id = db_repo.upsert_categories_bulk(new_category_names) if new_category_names else {}
 
-    pairs: List[Tuple[int, int]] = []  # (paper_id, category_id)
-    for aid in target_arxiv_ids:
-        pid = arxiv_to_paper_id.get(aid)
-        if not pid:
-            continue
-        for cat in arxiv_to_categories.get(aid, []):
-            cid = cat_name_to_id.get(cat)
-            if cid:
-                pairs.append((pid, cid))
-    if pairs:
-        db_repo.upsert_paper_categories_bulk(pairs)
+        # 仅为新论文创建关联
+        pairs: List[Tuple[int, int]] = []  # (paper_id, category_id)
+        for aid in new_arxiv_ids:
+            pid = arxiv_to_paper_id.get(aid)
+            if not pid:
+                continue
+            for cat in arxiv_to_categories.get(aid, []):
+                cid = cat_name_to_id.get(cat)
+                if cid:
+                    pairs.append((pid, cid))
+        
+        if pairs:
+            db_repo.upsert_paper_categories_bulk(pairs)
+    else:
+        # 无新论文，无需处理分类关联
+        pairs = []
+        print(f"⚡ [导入性能] 无新论文，跳过分类关联操作")
     
     # 5) 计算统计信息
     total_upsert = len(items_for_write)
@@ -271,7 +280,9 @@ def import_arxiv_papers_to_db(
         arxiv_to_item = {r["arxiv_id"]: r for r in parsed_items}
         now = dt.datetime.now().isoformat(timespec='seconds')
         
-        for idx, aid in enumerate(sorted(target_arxiv_ids), start=1):
+        # 获取所有解析的论文ID用于日志输出
+        all_parsed_ids = {r["arxiv_id"] for r in parsed_items}
+        for idx, aid in enumerate(sorted(all_parsed_ids), start=1):
             item = arxiv_to_item.get(aid, {})
             primary_category = item.get("primary_category")
             print(f"[{idx}/{total}] arxiv_id={aid} update_date={target_date_str} search_category={category} now={now}")

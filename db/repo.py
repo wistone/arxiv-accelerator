@@ -204,6 +204,76 @@ def get_existing_arxiv_ids_by_date(date: str | dt.date, arxiv_ids: List[str]) ->
         return []
 
 
+def smart_check_and_read(date: str | dt.date, category: str, arxiv_ids: List[str]) -> Dict[str, Any]:
+    """🚀 一体化操作：检查存在性+读取完整数据，避免两次DB查询"""
+    import time
+    
+    if not arxiv_ids:
+        return {'existing_ids': [], 'articles': []}
+    
+    db = app_schema()
+    date_str = _ensure_date(date)
+    category_id = upsert_category(category)
+    
+    try:
+        # 🚀 关键优化：一次查询同时完成存在性检查和数据读取
+        print(f"[一体化] 开始联合查询：存在性检查+完整数据读取")
+        start_time = time.time()
+        
+        # 分批处理ArXiv ID列表
+        all_existing_ids = []
+        all_articles_data = []
+        
+        chunk_size = 100
+        for i in range(0, len(arxiv_ids), chunk_size):
+            chunk = arxiv_ids[i:i + chunk_size]
+            
+            # 一次查询获取：该分类下的完整论文信息
+            result = (
+                db.from_("paper_categories")
+                .select("papers!inner(paper_id, arxiv_id, title, authors, abstract, link, author_affiliation)")
+                .eq("category_id", category_id)
+                .eq("papers.update_date", date_str)
+                .in_("papers.arxiv_id", chunk)
+                .order("arxiv_id", foreign_table="papers", desc=True)
+                .execute()
+                .data
+            )
+            
+            # 处理查询结果
+            for r in result:
+                paper = r.get("papers", {})
+                if paper:
+                    all_existing_ids.append(paper["arxiv_id"])
+                    all_articles_data.append(paper)
+        
+        query_time = time.time() - start_time
+        print(f"[一体化] 联合查询完成，耗时: {query_time:.2f}s | 找到该分类下已存在 {len(all_existing_ids)} 条")
+        
+        # 转换为前端格式
+        articles = []
+        for idx, r in enumerate(all_articles_data, start=1):
+            articles.append({
+                "number": idx,
+                "id": r["arxiv_id"],
+                "title": r["title"],
+                "authors": r.get("authors") or "",
+                "abstract": r.get("abstract") or "",
+                "link": r.get("link") or "",
+                "author_affiliation": r.get("author_affiliation") or "",
+            })
+        
+        return {
+            'existing_ids': all_existing_ids,
+            'articles': articles,
+            'query_time': query_time
+        }
+        
+    except Exception as e:
+        print(f"[一体化] 联合查询失败: {e}")
+        return {'existing_ids': [], 'articles': []}
+
+
 def list_papers_by_date_category(date: str | dt.date, category: str) -> List[Dict[str, Any]]:
     db = app_schema()
     date_str = _ensure_date(date)
@@ -660,18 +730,27 @@ def upsert_paper_categories_bulk(pairs: List[Tuple[int, int]]) -> None:
     if not pairs:
         return
     rows = [{"paper_id": p, "category_id": c} for p, c in pairs]
-    try:
-        db.from_("paper_categories").upsert(rows, on_conflict="paper_id,category_id").execute()
-    except Exception:
-        # 退化：分块插入，遇到重复由唯一键报错则忽略
-        chunk_size = 1000
-        for i in range(0, len(rows), chunk_size):
-            chunk = rows[i:i + chunk_size]
-            try:
-                db.from_("paper_categories").insert(chunk).execute()
-            except Exception:
-                # 忽略重复错误
-                pass
+    
+    # 🚀 优化：对大量关联进行分块处理，避免单次请求过大
+    chunk_size = 500  # 减小分块以提升性能
+    total_chunks = (len(rows) + chunk_size - 1) // chunk_size
+    
+    if len(rows) > chunk_size:
+        print(f"[批处理] 分 {total_chunks} 块处理 {len(rows)} 个分类关联")
+    
+    for i in range(0, len(rows), chunk_size):
+        chunk = rows[i:i + chunk_size]
+        try:
+            db.from_("paper_categories").upsert(chunk, on_conflict="paper_id,category_id").execute()
+        except Exception as e:
+            # 退化：逐条插入，遇到重复则忽略
+            print(f"[批处理] 块 {i//chunk_size + 1} upsert失败，退化为逐条插入: {e}")
+            for row in chunk:
+                try:
+                    db.from_("paper_categories").insert([row]).execute()
+                except Exception:
+                    # 忽略重复错误
+                    pass
 
 
 def list_existing_analyses_for_prompt(paper_ids: List[int], prompt_id: str) -> List[int]:
