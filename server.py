@@ -17,12 +17,15 @@ try:
 except ImportError:
     print("⚠️  python-dotenv未安装，使用系统环境变量")
 
-# from crawl_raw_info import crawl_arxiv_papers  # 已删除，改用import_arxiv_to_db
-from paper_analysis_processor import analyze_paper # 只导入必要的analyze_paper
-from doubao_client import DoubaoClient
-# from auto_commit_github_api import GitHubAutoCommit  # 已删除，改用数据库存储
+# 导入重构后的服务层
+from services.analysis_service import analyze_paper
+from services.arxiv_service import import_arxiv_papers
+from services.affiliation_service import get_author_affiliations, clear_affiliation_cache
+from clients.ai_client import DoubaoClient
 from db import repo as db_repo
-from import_arxiv_to_db import import_arxiv_papers_to_db
+
+# 向后兼容的别名
+import_arxiv_papers_to_db = import_arxiv_papers
 
 # 📦 简单的内存缓存（生产环境可用Redis）
 _search_cache = {}
@@ -434,7 +437,7 @@ def run_db_analysis_task(task_id, pending_papers, selected_date, selected_catego
                                 'status': '正在获取作者机构...'
                             }
                         
-                        from parse_author_affli_from_doubao import get_author_affiliations
+                        # get_author_affiliations 已在文件顶部导入
                         
                         # 定义进度回调函数
                         def update_progress(message):
@@ -575,7 +578,7 @@ def fetch_affiliations_api():
         
         print(f"[API] 开始获取作者机构: paper_id={paper_id}, link={link}")
         
-        from parse_author_affli_from_doubao import get_author_affiliations
+        # get_author_affiliations 已在文件顶部导入
         aff = get_author_affiliations(link, use_cache=False)  # 强制不使用缓存
         
         if aff and len(aff) > 0:
@@ -671,7 +674,6 @@ def clear_cache():
         print("🗑️  已清理导入缓存")
     
     try:
-        from parse_author_affli_from_doubao import clear_affiliation_cache
         clear_affiliation_cache()
         print("🗑️  已清理机构信息缓存")
     except:
@@ -700,7 +702,6 @@ if __name__ == '__main__':
     
     # 清空机构信息缓存
     try:
-        from parse_author_affli_from_doubao import clear_affiliation_cache
         clear_affiliation_cache()
     except:
         pass

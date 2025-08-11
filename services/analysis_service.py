@@ -1,11 +1,29 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+"""
+论文分析服务
+
+提供论文的AI智能分析功能
+"""
 
 import json
 import time
+from typing import Dict, Any, Optional
 
-def analyze_paper(client, system_prompt, title, abstract, max_retries=3):
-    """分析单篇论文"""
+
+def analyze_paper(client, system_prompt: str, title: str, abstract: str, max_retries: int = 3) -> str:
+    """
+    分析单篇论文
+    
+    Args:
+        client: AI客户端实例
+        system_prompt: 系统提示词
+        title: 论文标题
+        abstract: 论文摘要
+        max_retries: 最大重试次数
+        
+    Returns:
+        str: JSON格式的分析结果
+    """
     for attempt in range(max_retries):
         try:
             print(f"开始分析论文 (第{attempt+1}/{max_retries}次尝试): {title[:50]}...")
@@ -67,3 +85,47 @@ def analyze_paper(client, system_prompt, title, abstract, max_retries=3):
     
     # 不应该到达这里，但以防万一
     return '{"error": "Unexpected error in analyze_paper"}'
+
+
+def parse_analysis_result(result_json: str) -> Dict[str, Any]:
+    """
+    解析分析结果JSON
+    
+    Args:
+        result_json: JSON格式的分析结果
+        
+    Returns:
+        Dict: 解析后的结果字典
+    """
+    try:
+        return json.loads(result_json)
+    except json.JSONDecodeError:
+        return {"error": "Invalid JSON format"}
+
+
+def validate_analysis_result(result: Dict[str, Any]) -> bool:
+    """
+    验证分析结果的有效性
+    
+    Args:
+        result: 分析结果字典
+        
+    Returns:
+        bool: 是否有效
+    """
+    required_fields = ["pass_filter"]
+    return all(field in result for field in required_fields)
+
+
+def calculate_normalized_score(raw_score: int, max_score: int = 15) -> int:
+    """
+    计算标准化分数
+    
+    Args:
+        raw_score: 原始分数
+        max_score: 最大分数
+        
+    Returns:
+        int: 标准化分数 (0-10)
+    """
+    return min(10, raw_score) if raw_score >= 0 else 0

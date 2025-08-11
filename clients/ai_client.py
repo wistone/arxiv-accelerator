@@ -1,3 +1,10 @@
+#!/usr/bin/env python3
+"""
+AI 模型客户端 - 统一的 AI 服务接口
+
+支持豆包 (Doubao) 等多种 AI 模型的调用
+"""
+
 import os
 from openai import OpenAI
 
@@ -8,14 +15,17 @@ try:
 except ImportError:
     pass  # 如果没有dotenv，继续使用系统环境变量
 
+
 class DoubaoClient:
     """
-    Doubao1.6模型调用客户端
+    豆包 (Doubao) AI 模型客户端
+    
+    提供论文分析、文本理解等 AI 能力
     """
     
     def __init__(self, api_key=None, model=None):
         """
-        初始化Doubao客户端
+        初始化豆包客户端
         
         Args:
             api_key (str, optional): API密钥，如果未提供则从环境变量DOUBAO_API_KEY读取
@@ -49,9 +59,9 @@ class DoubaoClient:
         )
         self.model = model
     
-    def chat(self, message, system_prompt=None, verbose=True):
+    def chat(self, message: str, system_prompt: str = None, verbose: bool = True) -> str:
         """
-        与doubao1.6模型对话
+        与 AI 模型对话
         
         Args:
             message (str): 用户消息
@@ -59,13 +69,11 @@ class DoubaoClient:
             verbose (bool): 是否打印详细信息
             
         Returns:
-            str: 模型回复
+            str: 模型回复，失败时返回 None
         """
         try:
             if verbose:
-                print(f"正在调用doubao1.6模型...")
-                # if system_prompt:
-                #     print(f"系统提示词: {system_prompt[:100]}...")
+                print(f"正在调用豆包1.6模型...")
                 print(f"用户问题: {message[:50]}...")
                 print("-" * 50)
             
@@ -91,8 +99,6 @@ class DoubaoClient:
             
             if verbose:
                 print("模型回复:")
-                # print(reply)
-                # print("-" * 50)
                 print("调用成功！")
             
             return reply
@@ -103,13 +109,19 @@ class DoubaoClient:
                 print(error_msg)
             return None
 
-def test_doubao():
+
+# 为了向后兼容，保留原名称
+DoubaoClient = DoubaoClient
+
+
+def test_ai_client():
     """
-    测试doubao1.6模型调用
+    测试 AI 客户端调用
     """
     client = DoubaoClient()
     response = client.chat("你是什么模型？")
     return response
 
+
 if __name__ == "__main__":
-    test_doubao() 
+    test_ai_client()

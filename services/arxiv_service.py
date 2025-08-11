@@ -1,25 +1,8 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
 """
-从 arXiv 拉取指定日期/分类的论文并写入 Supabase 数据库：app.papers 与 app.paper_categories。
+arXiv 数据导入服务
 
-时间窗口规则：按 ET(US/Eastern) 的 20:00 为每天边界，目标日的窗口为：
-  [目标日前一日 20:00, 目标日 20:00] (闭区间)
-
-字段映射：
-  - arxiv_id: 例如 "2508.05636v1"（从 entry.id 或 entry.link 的 /abs/<id> 提取，包含版本号）
-  - title, authors, abstract, link
-  - primary_category: arxiv:primary_category 的 term；无则从 tags 第一项回退
-  - update_date: 目标日期（YYYY-MM-DD）
-  - ingest_at: 由数据库默认值生成
-
-写库策略：
-  - papers: upsert（按 arxiv_id 唯一）
-  - categories: 对所有出现的 category term upsert
-  - paper_categories: 建立 (paper_id, category_id) 关联（按多对多）
-
-日志：每条写库操作输出到stdout，便于确认。
+负责从 arXiv API 获取论文数据并导入到数据库
 """
 
 import datetime as dt
@@ -85,12 +68,24 @@ def _extract_all_categories(entry: Any) -> List[str]:
     return cats
 
 
-def import_arxiv_papers_to_db(
+def import_arxiv_papers(
     target_date_str: str,
     category: str = "cs.CV",
     limit: Optional[int] = None,
     skip_if_exists: bool = True,
 ) -> Dict[str, Any]:
+    """
+    从 arXiv 导入指定日期和分类的论文数据
+    
+    Args:
+        target_date_str: 目标日期 (YYYY-MM-DD)
+        category: arXiv 分类 (如 cs.CV)
+        limit: 限制导入数量
+        skip_if_exists: 是否跳过已存在的论文
+        
+    Returns:
+        Dict: 导入统计信息
+    """
     import time
     target_date = dt.datetime.strptime(target_date_str, "%Y-%m-%d").date()
     et_tz = pytz.timezone("US/Eastern")
@@ -149,7 +144,7 @@ def import_arxiv_papers_to_db(
         print(f"按limit截断为 {len(kept)} 条")
     total = len(kept)
 
-    # ===== 新：批处理提速路径 =====
+    # ===== 批处理提速路径 =====
     # 1) 预解析 entries，构建待写入行与类别映射
     parse_start = time.time()
     parsed_items: List[Dict[str, Any]] = []
@@ -236,9 +231,8 @@ def import_arxiv_papers_to_db(
         arxiv_to_paper_id.update({r["arxiv_id"]: r["paper_id"] for r in final_rows})
     except Exception as e:
         print(f"获取paper映射失败: {e}")
-    # 对于 skip_if_exists=true 的情形，已有的也需要映射（用于后续关联时若你将来想保留，但当前逻辑保持与旧实现一致：跳过已有，不再做关联）
 
-    # 4) 🚀 修复：为所有解析的论文建立分类关联（包括已存在但缺少关联的）
+    # 4) 为所有解析的论文建立分类关联（包括已存在但缺少关联的）
     all_category_names: List[str] = []
     for aid in all_ids:
         all_category_names.extend(arxiv_to_categories.get(aid, []))
@@ -298,19 +292,5 @@ def import_arxiv_papers_to_db(
     }
 
 
-def main():
-    import argparse
-    parser = argparse.ArgumentParser(description="Import arXiv papers into Supabase DB")
-    parser.add_argument("date", help="YYYY-MM-DD")
-    parser.add_argument("category", help="e.g. cs.CV")
-    parser.add_argument("--limit", type=int, default=None, help="process only first N entries")
-    args = parser.parse_args()
-
-    stats = import_arxiv_papers_to_db(args.date, args.category, args.limit)
-    print("SUMMARY:", stats)
-
-
-if __name__ == "__main__":
-    main()
-
-
+# 向后兼容的别名
+import_arxiv_papers_to_db = import_arxiv_papers
