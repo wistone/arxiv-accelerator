@@ -122,15 +122,35 @@ def search_articles():
                 
                 missing_ids = set(arxiv_ids) - set(existing_ids)
                 
-                if not missing_ids:
-                    # 所有数据都已存在，完全跳过导入，直接使用缓存的文章数据
-                    print(f"⚡ [搜索性能] 所有数据已存在，跳过导入+DB读取")
+                # 🔧 修复：检查分类关联的完整性
+                expected_linked_count = len(existing_ids)  # 已存在的论文数量
+                actual_linked_count = len(cached_articles)  # 已建立分类关联的论文数量
+                
+                if not missing_ids and expected_linked_count == actual_linked_count:
+                    # 所有数据都已存在且分类关联完整，跳过导入
+                    print(f"⚡ [搜索性能] 所有数据已存在且分类关联完整({actual_linked_count}/{expected_linked_count})，跳过导入")
                     import_time = 0
                     stats = {'processed': len(existing_ids), 'total_upsert': 0}
-                    # 直接使用一体化查询的结果，跳过后续的DB读取
                     articles = cached_articles
                     db_time = 0.0
                     skip_db_read = True
+                elif not missing_ids:
+                    # 论文已存在但分类关联不完整，需要补建关联
+                    print(f"🔗 [搜索性能] 论文已存在但分类关联不完整({actual_linked_count}/{expected_linked_count})，补建关联")
+                    skip_db_read = False
+                    try:
+                        import_start = time.time()
+                        stats = import_arxiv_papers_to_db(selected_date, selected_category, limit=None, skip_if_exists=True)
+                        import_time = time.time() - import_start
+                        print(f"⏱️  [搜索性能] 补建关联完成，耗时: {import_time:.2f}s | processed={stats.get('processed', 0)} links={stats.get('total_link', 0)}")
+                    except Exception as e:
+                        import_time = time.time() - import_start if 'import_start' in locals() else 0
+                        print(f"❌ [搜索性能] 补建关联失败，耗时: {import_time:.2f}s | 错误: {e}")
+                        skip_db_read = False
+                elif missing_ids:
+                    # 只导入缺失的数据
+                    print(f"📥 [搜索性能] 发现 {len(missing_ids)} 条新数据，开始增量导入")
+                    skip_db_read = False
                 else:
                     # 只导入缺失的数据
                     print(f"📥 [搜索性能] 发现 {len(missing_ids)} 条新数据，开始增量导入")
@@ -628,6 +648,40 @@ def get_available_dates():
         
     except Exception as e:
         return jsonify({'error': f'获取日期列表失败: {str(e)}'}), 500
+
+@app.route('/api/clear_cache', methods=['POST'])
+def clear_cache():
+    """清理服务器端缓存（用于测试）"""
+    global _search_cache, _cache_expiry
+    
+    data = request.get_json() or {}
+    cache_type = data.get('type', 'all')
+    
+    if cache_type in ['all', 'search']:
+        _search_cache.clear()
+        search_keys = [k for k in _cache_expiry.keys() if not k.startswith('import_')]
+        for key in search_keys:
+            _cache_expiry.pop(key, None)
+        print("🗑️  已清理搜索缓存")
+    
+    if cache_type in ['all', 'import']:
+        import_keys = [k for k in _cache_expiry.keys() if k.startswith('import_')]
+        for key in import_keys:
+            _cache_expiry.pop(key, None)
+        print("🗑️  已清理导入缓存")
+    
+    try:
+        from parse_author_affli_from_doubao import clear_affiliation_cache
+        clear_affiliation_cache()
+        print("🗑️  已清理机构信息缓存")
+    except:
+        pass
+    
+    return jsonify({
+        'success': True, 
+        'message': f'已清理{cache_type}缓存',
+        'remaining_cache_keys': list(_cache_expiry.keys())
+    })
 
 
 

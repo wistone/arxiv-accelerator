@@ -205,7 +205,12 @@ def get_existing_arxiv_ids_by_date(date: str | dt.date, arxiv_ids: List[str]) ->
 
 
 def smart_check_and_read(date: str | dt.date, category: str, arxiv_ids: List[str]) -> Dict[str, Any]:
-    """🚀 一体化操作：检查存在性+读取完整数据，避免两次DB查询"""
+    """🚀 一体化操作：检查存在性+读取完整数据，避免两次DB查询
+    
+    修复：分两步检查
+    1. 检查论文是否在数据库中存在（按date+arxiv_id）
+    2. 检查是否已建立该分类关联，如果没有则需要补建
+    """
     import time
     
     if not arxiv_ids:
@@ -216,43 +221,54 @@ def smart_check_and_read(date: str | dt.date, category: str, arxiv_ids: List[str
     category_id = upsert_category(category)
     
     try:
-        # 🚀 关键优化：一次查询同时完成存在性检查和数据读取
         print(f"[一体化] 开始联合查询：存在性检查+完整数据读取")
         start_time = time.time()
         
-        # 分批处理ArXiv ID列表
-        all_existing_ids = []
-        all_articles_data = []
-        
+        # 🔧 修复：第一步，检查该日期下所有已存在的论文（不限分类关联）
+        all_existing_papers = []
         chunk_size = 100
         for i in range(0, len(arxiv_ids), chunk_size):
             chunk = arxiv_ids[i:i + chunk_size]
             
-            # 一次查询获取：该分类下的完整论文信息
-            result = (
-                db.from_("paper_categories")
-                .select("papers!inner(paper_id, arxiv_id, title, authors, abstract, link, author_affiliation)")
-                .eq("category_id", category_id)
-                .eq("papers.update_date", date_str)
-                .in_("papers.arxiv_id", chunk)
-                .order("arxiv_id", foreign_table="papers", desc=True)
+            # 查询该日期下所有已存在的论文
+            papers_result = (
+                db.from_("papers")
+                .select("paper_id, arxiv_id, title, authors, abstract, link, author_affiliation")
+                .eq("update_date", date_str)
+                .in_("arxiv_id", chunk)
+                .order("arxiv_id", desc=True)
                 .execute()
                 .data
             )
-            
-            # 处理查询结果
-            for r in result:
-                paper = r.get("papers", {})
-                if paper:
-                    all_existing_ids.append(paper["arxiv_id"])
-                    all_articles_data.append(paper)
+            all_existing_papers.extend(papers_result)
+        
+        existing_paper_ids = [p["paper_id"] for p in all_existing_papers]
+        existing_arxiv_ids = [p["arxiv_id"] for p in all_existing_papers]
+        
+        # 🔧 修复：第二步，检查哪些论文已经建立了该分类关联
+        linked_paper_ids = []
+        if existing_paper_ids:
+            for i in range(0, len(existing_paper_ids), chunk_size):
+                chunk_ids = existing_paper_ids[i:i + chunk_size]
+                linked_result = (
+                    db.from_("paper_categories")
+                    .select("paper_id")
+                    .eq("category_id", category_id)
+                    .in_("paper_id", chunk_ids)
+                    .execute()
+                    .data
+                )
+                linked_paper_ids.extend([r["paper_id"] for r in linked_result])
+        
+        # 找出已建立分类关联的论文数据
+        linked_papers = [p for p in all_existing_papers if p["paper_id"] in linked_paper_ids]
         
         query_time = time.time() - start_time
-        print(f"[一体化] 联合查询完成，耗时: {query_time:.2f}s | 找到该分类下已存在 {len(all_existing_ids)} 条")
+        print(f"[一体化] 联合查询完成，耗时: {query_time:.2f}s | 该日期已有 {len(existing_arxiv_ids)} 条，该分类下已关联 {len(linked_papers)} 条")
         
-        # 转换为前端格式
+        # 转换为前端格式（只返回已建立分类关联的论文）
         articles = []
-        for idx, r in enumerate(all_articles_data, start=1):
+        for idx, r in enumerate(linked_papers, start=1):
             articles.append({
                 "number": idx,
                 "id": r["arxiv_id"],
@@ -264,8 +280,8 @@ def smart_check_and_read(date: str | dt.date, category: str, arxiv_ids: List[str
             })
         
         return {
-            'existing_ids': all_existing_ids,
-            'articles': articles,
+            'existing_ids': existing_arxiv_ids,  # 🔧 返回所有已存在的论文ID（用于导入判断）
+            'articles': articles,  # 🔧 返回已建立分类关联的论文（用于前端显示）
             'query_time': query_time
         }
         
@@ -660,6 +676,7 @@ def upsert_papers_bulk(rows: List[Dict[str, Any]]) -> Dict[str, int]:
       1) 先查已有 arxiv_id → paper_id（一次或分块）
       2) 仅对缺失的执行批量 upsert/insert（带 returning），再整体 select 一次获得完整映射
     """
+    import time
     db = app_schema()
     if not rows:
         return {}
@@ -670,12 +687,42 @@ def upsert_papers_bulk(rows: List[Dict[str, Any]]) -> Dict[str, int]:
 
     missing_rows = [r for r in rows if r["arxiv_id"] not in arxiv_to_id]
     if missing_rows:
-        # 使用 upsert 以便多进程情况下也安全；returning 默认 representation
-        try:
-            db.from_("papers").upsert(missing_rows, on_conflict="arxiv_id").execute()
-        except Exception:
-            # 若当前库不支持 upsert 方法，退化为批量 insert（并发冲突情况下由唯一键保护）
-            db.from_("papers").insert(missing_rows).execute()
+        # 🚀 对大量论文进行分块处理，避免单次请求过大
+        chunk_size = 50  # 减小论文写入的分块大小
+        
+        if len(missing_rows) > chunk_size:
+            print(f"[论文写入] 分块处理 {len(missing_rows)} 条新论文")
+        
+        for i in range(0, len(missing_rows), chunk_size):
+            chunk = missing_rows[i:i + chunk_size]
+            chunk_start = time.time()
+            
+            # 添加重试机制
+            retry_count = 0
+            max_retries = 3
+            while retry_count < max_retries:
+                try:
+                    db.from_("papers").upsert(chunk, on_conflict="arxiv_id").execute()
+                    break
+                except Exception as e:
+                    retry_count += 1
+                    if "Connection reset by peer" in str(e) and retry_count < max_retries:
+                        print(f"[论文写入] 块 {i//chunk_size + 1} 连接重置，重试 {retry_count}/{max_retries}")
+                        time.sleep(2)
+                        continue
+                    elif retry_count >= max_retries:
+                        # 最后尝试使用insert
+                        try:
+                            db.from_("papers").insert(chunk).execute()
+                            break
+                        except Exception:
+                            raise e
+                    else:
+                        raise e
+            
+            chunk_time = time.time() - chunk_start
+            if chunk_time > 3:
+                print(f"[论文写入] 块 {i//chunk_size + 1} 完成，耗时: {chunk_time:.2f}s")
 
     # 统一再 select 一次，得到完整映射
     final_rows = get_papers_by_arxiv_ids(all_arxiv_ids)
@@ -726,13 +773,14 @@ def upsert_categories_bulk(names: List[str]) -> Dict[str, int]:
 
 def upsert_paper_categories_bulk(pairs: List[Tuple[int, int]]) -> None:
     """批量 upsert paper_categories，pairs 为 (paper_id, category_id)。"""
+    import time
     db = app_schema()
     if not pairs:
         return
     rows = [{"paper_id": p, "category_id": c} for p, c in pairs]
     
     # 🚀 优化：对大量关联进行分块处理，避免单次请求过大
-    chunk_size = 500  # 减小分块以提升性能
+    chunk_size = 100  # 进一步减小分块，避免超时
     total_chunks = (len(rows) + chunk_size - 1) // chunk_size
     
     if len(rows) > chunk_size:
@@ -740,8 +788,28 @@ def upsert_paper_categories_bulk(pairs: List[Tuple[int, int]]) -> None:
     
     for i in range(0, len(rows), chunk_size):
         chunk = rows[i:i + chunk_size]
+        chunk_start = time.time()
         try:
-            db.from_("paper_categories").upsert(chunk, on_conflict="paper_id,category_id").execute()
+            # 添加超时重试机制
+            retry_count = 0
+            max_retries = 3
+            while retry_count < max_retries:
+                try:
+                    db.from_("paper_categories").upsert(chunk, on_conflict="paper_id,category_id").execute()
+                    break
+                except Exception as e:
+                    retry_count += 1
+                    if "Connection reset by peer" in str(e) and retry_count < max_retries:
+                        print(f"[批处理] 块 {i//chunk_size + 1} 连接重置，重试 {retry_count}/{max_retries}")
+                        time.sleep(2)  # 等待2秒后重试
+                        continue
+                    else:
+                        raise e
+            
+            chunk_time = time.time() - chunk_start
+            if chunk_time > 5:  # 如果单块耗时超过5秒，记录日志
+                print(f"[批处理] 块 {i//chunk_size + 1}/{total_chunks} 完成，耗时: {chunk_time:.2f}s")
+                
         except Exception as e:
             # 退化：逐条插入，遇到重复则忽略
             print(f"[批处理] 块 {i//chunk_size + 1} upsert失败，退化为逐条插入: {e}")
