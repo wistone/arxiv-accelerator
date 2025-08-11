@@ -77,7 +77,7 @@ function displayArticles(articles) {
             <td class="title-cell">
                 <div class="title-content">${article.title}</div>
                 <div class="title-link">
-                    <a href="${article.link}" target="_blank">查看论文</a>
+                    <a href="${convertToPdfLink(article.link)}" target="_blank">查看链接</a>
                 </div>
             </td>
             <td class="authors-cell">

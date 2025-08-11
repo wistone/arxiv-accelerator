@@ -237,7 +237,7 @@ def get_author_affiliations(arxiv_url: str, use_cache: bool = True, progress_cal
     try:
         # 调用进度回调
         if progress_callback:
-            progress_callback("分析后已选中该论文，正在下载PDF...")
+            progress_callback("分析后已选中该论文，正在下载PDF获取机构信息，需要10s左右...")
         
         # 1. 下载PDF（优化：并行处理）
         step_start = time.time()

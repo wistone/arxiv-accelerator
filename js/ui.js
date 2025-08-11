@@ -31,6 +31,22 @@ function hideOverlayLoading() {
     }
 }
 
+// arXiv链接转换：从abs链接转换为PDF链接
+function convertToPdfLink(absLink) {
+    if (!absLink) return '';
+    
+    // 从 abs 链接提取 arXiv ID
+    // 支持格式: http://arxiv.org/abs/2508.05636v1 或 https://arxiv.org/abs/2508.05636v1
+    const match = absLink.match(/arxiv\.org\/abs\/([0-9]{4}\.[0-9]{5}(?:v\d+)?)/);
+    if (match && match[1]) {
+        const arxivId = match[1];
+        return `https://arxiv.org/pdf/${arxivId}`;
+    }
+    
+    // 如果无法解析，返回原链接
+    return absLink;
+}
+
 function showError(message) {
     hideLoading();
     // 隐藏成功消息

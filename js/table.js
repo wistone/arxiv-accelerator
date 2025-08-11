@@ -112,7 +112,7 @@ function displayAnalysisFailure(failInfo) {
                 </td>
                 <td class="title-cell">
                     <div class="title-content">${paper.title || '未知标题'}</div>
-                    ${paper.link ? `<div class="title-link"><a href="${paper.link}" target="_blank">查看原文</a></div>` : ''}
+                    ${paper.link ? `<div class="title-link"><a href="${convertToPdfLink(paper.link)}" target="_blank">查看链接</a></div>` : ''}
                 </td>
                 <td class="authors-cell">
                     <div class="authors-content">${paper.authors || '未知作者'}</div>
@@ -296,7 +296,7 @@ function displaySortedResults(articles) {
             <td class="title-cell">
                 <div class="title-content">${article.title}</div>
                 <div class="title-link">
-                    <a href="${article.link}" target="_blank">查看链接</a>
+                    <a href="${convertToPdfLink(article.link)}" target="_blank">查看链接</a>
                 </div>
             </td>
             <td class="authors-cell">
@@ -348,6 +348,7 @@ function toggleRawJson(elementId) {
         }
     }
 }
+
 
 function toggleAuthors(elementId) {
     const authorsContent = document.getElementById(elementId);
