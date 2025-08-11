@@ -51,13 +51,14 @@
 #startAnalysisBtn,
 #showExistingBtn {
   min-width: 160px;
-  height: 44px;  /* 统一高度为44px，与选择框一致 */
-  padding: 0 16px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 1;  /* 重置行高 */
+  height: 44px !important;  /* 统一高度为44px，与选择框一致 */
+  padding: 0 16px !important;
+  display: inline-flex !important;
+  align-items: center !important;  /* 强制垂直居中 */
+  justify-content: center !important;
+  line-height: 1 !important;  /* 重置行高，避免文字偏移 */
   font-size: 16px;
+  vertical-align: middle;  /* 额外保险 */
 }
 
 /* 统一按钮颜色：可点紫色，不可点灰色 */

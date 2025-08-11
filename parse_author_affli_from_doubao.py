@@ -237,7 +237,7 @@ def get_author_affiliations(arxiv_url: str, use_cache: bool = True, progress_cal
     try:
         # 调用进度回调
         if progress_callback:
-            progress_callback("正在下载PDF...")
+            progress_callback("分析后已选中该论文，正在下载PDF...")
         
         # 1. 下载PDF（优化：并行处理）
         step_start = time.time()
@@ -247,7 +247,7 @@ def get_author_affiliations(arxiv_url: str, use_cache: bool = True, progress_cal
         
         # 调用进度回调
         if progress_callback:
-            progress_callback("正在解析PDF文本...")
+            progress_callback("分析后已选中改论文，正在解析PDF文本...")
         
         # 2. 提取第一页文本（优化：只提取前2000字符用于机构识别）
         step_start = time.time()
@@ -263,7 +263,7 @@ def get_author_affiliations(arxiv_url: str, use_cache: bool = True, progress_cal
         
         # 调用进度回调
         if progress_callback:
-            progress_callback("正在调用AI模型分析...")
+            progress_callback("分析后已选中该论文，正在调用AI模型分析机构信息...")
         
         # 3. 使用豆包API解析机构信息
         step_start = time.time()
