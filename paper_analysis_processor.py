@@ -67,16 +67,3 @@ def analyze_paper(client, system_prompt, title, abstract, max_retries=3):
     
     # 不应该到达这里，但以防万一
     return '{"error": "Unexpected error in analyze_paper"}'
-
-# 以下函数为废弃函数，仅保留签名以避免导入错误
-def parse_markdown_table(file_path):
-    """遗留函数：解析markdown表格（建议使用数据库查询）"""
-    raise NotImplementedError("已废弃：请使用数据库方案")
-
-def generate_analysis_markdown(papers, output_file):
-    """遗留函数：生成分析markdown（建议使用数据库存储）"""
-    raise NotImplementedError("已废弃：请使用数据库方案")
-
-def generate_analysis_fail_markdown(papers, output_file, error_count):
-    """遗留函数：生成失败markdown（建议使用数据库存储）"""
-    raise NotImplementedError("已废弃：请使用数据库方案")
