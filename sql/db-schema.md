@@ -18,7 +18,7 @@
 - created_by：创建该提示词的用户ID，外键引用 `auth.users.id`（UUID）。
 - created_at：提示词创建时间。
 
-**说明：** 提示词可以预先存储一份默认的系统分析Prompt（即现在的 `prompt/system_prompt.md` 内容），也可以让用户日后添加新的分析Prompt。根据需求，一个Prompt可以被多个用户共享使用，因此我们将提示词定义为全局表，而非每个用户各自一份。通过 `created_by` 记录哪个用户创建了该Prompt，但不限制读取；可通过 RLS/应用逻辑限制非创建者的写操作。分析结果表仅引用 `prompt_id`，避免冗余存储。
+**说明：** 提示词可以预先存储一份默认的系统分析Prompt（即现在的 `multi-modal-llm` 提示词），也可以让用户日后添加新的分析Prompt。根据需求，一个Prompt可以被多个用户共享使用，因此我们将提示词定义为全局表，而非每个用户各自一份。通过 `created_by` 记录哪个用户创建了该Prompt，但不限制读取；可通过 RLS/应用逻辑限制非创建者的写操作。分析结果表仅引用 `prompt_id`，避免冗余存储。
 
 ## 论文信息表（Papers）
 **作用：** 存储从 arXiv 获取的论文元数据。原先各 *-result.md 文件中的论文列表将汇总到这一全局表中。每条记录对应一篇论文，不重复存储，实现论文信息的集中管理。
@@ -64,7 +64,7 @@
 - analysis_id (主键)：分析记录ID（可使用自增ID或UUID）。
 - paper_id：被分析论文ID，外键引用 Papers 表。
 - prompt_id：所使用提示词ID，外键引用 Prompts 表。
-- analysis_result：分析结果内容（`jsonb`）。该 JSON 结构遵循 `prompt/system_prompt.md` 的输出约定，至少包含：
+- analysis_result：分析结果内容（`jsonb`）。该 JSON 结构遵循 `multi-modal-llm` 提示词的输出约定，至少包含：
   - `pass_filter`: boolean
   - `raw_score`: number
   - `norm_score`: number（0-10）

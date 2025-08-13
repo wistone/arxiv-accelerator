@@ -436,12 +436,10 @@ def performance_comparison():
             return jsonify({'error': f'可用论文数量不足，需要{test_count}篇，实际{len(pending)}篇'}), 400
 
         # 读取system prompt
-        system_prompt_file = "prompt/system_prompt.md"
-        if not os.path.exists(system_prompt_file):
-            return jsonify({'error': 'system_prompt.md文件不存在'}), 500
-        
-        with open(system_prompt_file, 'r', encoding='utf-8') as f:
-            system_prompt = f.read().strip()
+        try:
+            system_prompt = db_repo.get_system_prompt()
+        except Exception as e:
+            return jsonify({'error': f'获取系统提示词失败: {str(e)}'}), 500
 
         # 运行性能对比
         task_id = f"{selected_date}-{selected_category}-comparison"
@@ -483,11 +481,7 @@ def run_db_analysis_task(task_id, pending_papers, selected_date, selected_catego
             }
 
         # 读取system prompt
-        system_prompt_file = "prompt/system_prompt.md"
-        if not os.path.exists(system_prompt_file):
-            raise Exception("system_prompt.md文件不存在")
-        with open(system_prompt_file, 'r', encoding='utf-8') as f:
-            system_prompt = f.read().strip()
+        system_prompt = db_repo.get_system_prompt()
 
         # 初始化豆包客户端
         print(f"📡 初始化豆包客户端... 🔍 Task ID: {task_id}")
@@ -611,11 +605,7 @@ def run_concurrent_analysis_task(task_id, pending_papers, selected_date, selecte
             }
 
         # 读取system prompt
-        system_prompt_file = "prompt/system_prompt.md"
-        if not os.path.exists(system_prompt_file):
-            raise Exception("system_prompt.md文件不存在")
-        with open(system_prompt_file, 'r', encoding='utf-8') as f:
-            system_prompt = f.read().strip()
+        system_prompt = db_repo.get_system_prompt()
 
         print(f"🚀 [并发分析] 启动任务 {task_id}，{workers}路并发，总计 {len(pending_papers)} 篇论文")
 

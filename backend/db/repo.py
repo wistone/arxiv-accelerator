@@ -378,6 +378,34 @@ def get_prompt_id_by_name(prompt_name: str = "system_default") -> Optional[str]:
     return None
 
 
+def get_prompt_content_by_name(prompt_name: str = "multi-modal-llm") -> Optional[str]:
+    """根据提示词名称获取内容。"""
+    db = app_schema()
+    res = db.from_("prompts").select("prompt_content").eq("prompt_name", prompt_name).limit(1).execute()
+    if res.data:
+        return res.data[0]["prompt_content"]
+    return None
+
+
+def get_system_prompt() -> str:
+    """获取系统分析提示词（优先从数据库读取，回退到文件）。"""
+    # 优先从数据库读取 multi-modal-llm prompt
+    db_prompt = get_prompt_content_by_name("multi-modal-llm")
+    if db_prompt:
+        print("📋 [提示词] 从数据库读取 multi-modal-llm 提示词")
+        return db_prompt
+    
+    # 回退方案：从文件读取（兼容旧版本）
+    import os
+    fallback_file = "prompt/multi-modal-llm-judger-example.md"
+    if os.path.exists(fallback_file):
+        print(f"⚠️  [提示词] 数据库中未找到 multi-modal-llm，回退到文件: {fallback_file}")
+        with open(fallback_file, 'r', encoding='utf-8') as f:
+            return f.read().strip()
+    
+    raise Exception("无法找到系统提示词：数据库中无 multi-modal-llm 记录，且本地文件不存在")
+
+
 def list_unanalyzed_papers(date: str | dt.date, category: str, prompt_id: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
     db = app_schema()
     date_str = _ensure_date(date)

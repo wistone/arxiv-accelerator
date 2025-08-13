@@ -245,7 +245,7 @@ arxiv-accelerator/
 │   │   ├── API_DOCUMENTATION.md      # API 文档
 │   │   └── RENDER_DEPLOYMENT_GUIDE.md # 部署指南
 │   ├── prompt/                    # AI 提示词
-│   │   ├── system_prompt.md          # 分析提示词
+│   │   ├── multi-modal-llm-judger-example.md # 分析提示词示例（存储在数据库中）
 │   │   └── author_affliation_prompt.md # 机构提取提示词
 │   └── README.md                  # 项目主文档
 │
@@ -329,7 +329,7 @@ PDF URL → clients/arxiv_client.py → utils/pdf_parser.py → services/affilia
 
 3. **AI 分析异常**
    - 验证豆包 API 密钥和模型配置
-   - 检查 `prompt/system_prompt.md` 文件
+   - 检查数据库中的 multi-modal-llm 提示词
 
 4. **前端显示问题**
    - 清理浏览器缓存和 Cookie
