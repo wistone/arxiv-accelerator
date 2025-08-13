@@ -47,40 +47,86 @@
   border-radius: 4px;
 }
 
-/* 弹窗内两个操作按钮：不等宽，但高度统一 */
+/* ============================================
+   统一按钮样式系统 - 解决文字居中和状态一致性问题
+   ============================================ */
+
+/* 通用按钮基础样式 */
+.btn.btn-primary {
+  /* 布局和尺寸 */
+  min-width: 120px;
+  height: 44px;
+  padding: 0 20px;
+  
+  /* Flexbox 垂直居中 */
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  
+  /* 字体和文字 */
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1;
+  text-align: center;
+  white-space: nowrap;
+  
+  /* 边框和圆角 */
+  border: none;
+  border-radius: 8px;
+  
+  /* 过渡效果 */
+  transition: all 0.3s ease;
+  
+  /* 消除浏览器默认样式 */
+  box-sizing: border-box;
+  vertical-align: middle;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+/* 可点击状态：紫色背景 + 白字 + hover效果 */
+.btn.btn-primary:not(:disabled):not(.disabled) {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+}
+
+.btn.btn-primary:not(:disabled):not(.disabled):hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 16px rgba(102, 126, 234, 0.3);
+  opacity: 0.95;
+}
+
+.btn.btn-primary:not(:disabled):not(.disabled):active {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+}
+
+/* 不可点击状态：灰底 + 白字 + 禁用效果 */
+.btn.btn-primary:disabled,
+.btn.btn-primary.disabled {
+  background: #9aa0a6 !important;
+  color: #ffffff !important;
+  cursor: not-allowed !important;
+  transform: none !important;
+  box-shadow: none !important;
+  opacity: 0.8;
+}
+
+.btn.btn-primary:disabled:hover,
+.btn.btn-primary.disabled:hover {
+  transform: none !important;
+  box-shadow: none !important;
+  opacity: 0.8;
+}
+
+/* 弹窗内特定按钮额外调整 */
 #startAnalysisBtn,
 #showExistingBtn {
-  min-width: 160px;
-  height: 44px !important;  /* 统一高度为44px，与选择框一致 */
-  padding: 0 16px !important;
-  display: inline-flex !important;
-  align-items: center !important;  /* 强制垂直居中 */
-  justify-content: center !important;
-  line-height: 1 !important;  /* 重置行高，避免文字偏移 */
-  font-size: 16px;
-  vertical-align: middle;  /* 额外保险 */
+  min-width: 160px; /* 弹窗按钮稍宽一些 */
 }
 
-/* 统一按钮颜色：可点紫色，不可点灰色 */
-.btn.btn-primary,
-.button-group .btn,
-.controls .btn {
-  background: linear-gradient(135deg, #7e6bff, #7e6bff);
-  color: #fff;
-  border: none;
-}
-.btn.btn-primary:hover,
-.button-group .btn:hover,
-.controls .btn:hover { opacity: 0.95; }
-.btn.btn-primary.disabled, .btn.btn-primary:disabled {
-  background: #9aa0a6;
-  cursor: not-allowed;
-}
-
-/* 分析主按钮在可点时不变灰 */
-#analyzeBtn.btn.btn-primary:hover:enabled {
-  background: linear-gradient(135deg, #7e6bff, #7e6bff);
-}
+/* 移除重复规则，已在统一按钮样式中处理 */
 
 
 .analysis-status {
@@ -275,15 +321,7 @@ body {
     gap: 8px;
 }
 
-.btn-primary {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-}
-
-.btn-primary:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
-}
+/* 移除重复的 .btn-primary 样式，使用统一按钮样式系统 */
 
 .btn-secondary {
     background: #6c757d;
