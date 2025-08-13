@@ -151,11 +151,7 @@ def search_articles():
                         print(f"❌ [搜索性能] 补建关联失败，耗时: {import_time:.2f}s | 错误: {e}")
                         skip_db_read = False
                 elif missing_ids:
-                    # 只导入缺失的数据
-                    print(f"📥 [搜索性能] 发现 {len(missing_ids)} 条新数据，开始增量导入")
-                    skip_db_read = False
-                else:
-                    # 只导入缺失的数据
+                    # 导入缺失的数据
                     print(f"📥 [搜索性能] 发现 {len(missing_ids)} 条新数据，开始增量导入")
                     skip_db_read = False
                     try:
