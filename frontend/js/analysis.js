@@ -209,7 +209,7 @@ async function startNewAnalysis(selectedDate, selectedCategory, selectedRange, t
         setButtonLoading('startAnalysisBtn', true, '启动中...');
         const overlay = document.getElementById('overlayLoading');
         if (overlay) overlay.style.display = 'flex';
-        const response = await fetch('/api/analyze_papers', {
+        const response = await fetch('/api/analyze_papers_concurrent', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -217,7 +217,8 @@ async function startNewAnalysis(selectedDate, selectedCategory, selectedRange, t
             body: JSON.stringify({
                 date: selectedDate,
                 category: selectedCategory,
-                range_type: selectedRange
+                range_type: selectedRange,
+                workers: 5  // 默认使用5路并发
             })
         });
 

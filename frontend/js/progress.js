@@ -3,7 +3,7 @@
  */
 
 function updateProgress(data) {
-    const { current, total, paper, analysis_result, status, success_count, error_count } = data;
+    const { current, total, paper, analysis_result, status, success_count, error_count, workers, processing_papers, last_completed_paper } = data;
     
     console.log('updateProgress called with:', data);
     
@@ -17,27 +17,52 @@ function updateProgress(data) {
     const progress = total > 0 ? (current / total) * 100 : 0;
     document.getElementById('progressBarFill').style.width = progress + '%';
     
-    // 构建进度文本，包含成功/错误统计
+    // 构建进度文本，包含并发信息和成功/错误统计
     let progressText = `正在处理第 ${current} / ${total} 篇论文 (${progress.toFixed(1)}%)`;
+    
+    // 显示并发信息
+    if (workers && workers > 1) {
+        progressText += ` | ${workers}路并发`;
+        
+        // 显示正在处理的论文数量
+        if (processing_papers && processing_papers.length > 0) {
+            progressText += ` | 正在处理: ${processing_papers.length}篇`;
+        }
+    }
+    
+    // 显示成功/错误统计
     if (success_count !== undefined || error_count !== undefined) {
         const successCount = success_count || 0;
         const errorCount = error_count || 0;
         progressText += ` | 成功: ${successCount}, 错误: ${errorCount}`;
     }
+    
     document.getElementById('progressText').textContent = progressText;
     
     // 更新当前论文信息
-    if (paper) {
+    // 优先显示最新完成的论文，否则显示当前处理的论文
+    const displayPaper = last_completed_paper || paper;
+    
+    if (displayPaper) {
+        // 构建标题，区分是最新完成还是正在处理
+        let titlePrefix = '';
+        if (last_completed_paper) {
+            titlePrefix = `最新完成第${current}篇`;
+            if (last_completed_paper.success) {
+                titlePrefix += ` ✅`;
+            } else {
+                titlePrefix += ` ❌`;
+            }
+        } else {
+            titlePrefix = `第${current}篇`;
+        }
+        
         // 显示论文标题
-        document.getElementById('currentTitle').textContent = `第${current}篇: ${paper.title}`;
+        document.getElementById('currentTitle').textContent = `${titlePrefix}: ${displayPaper.title}`;
         
-        // 显示作者
-        document.getElementById('currentAuthors').textContent = paper.authors;
-        
-        // 显示摘要（限制长度以便阅读）
-        const abstract = paper.abstract || '';
-        const shortAbstract = abstract.length > 300 ? abstract.substring(0, 300) + '...' : abstract;
-        document.getElementById('currentAbstract').textContent = shortAbstract;
+        // 隐藏作者和摘要信息（在并发模式下不显示）
+        document.getElementById('currentAuthors').textContent = '并发分析模式 - 专注于速度';
+        document.getElementById('currentAbstract').textContent = '查看完整信息请在分析完成后查看结果表格';
         
         // 显示分析结果
         if (analysis_result) {
@@ -87,8 +112,8 @@ function startSSEConnection(selectedDate, selectedCategory, testCount, rangeType
     // 保存当前分析的范围类型
     window.AppState.currentAnalysisRange = rangeType || 'full';
     
-    // 使用Server-Sent Events获取实时进度
-    window.AppState.currentEventSource = new EventSource(`/api/analysis_progress?date=${selectedDate}&category=${selectedCategory}&test_count=${testCount || ''}`);
+    // 使用Server-Sent Events获取实时进度 (并发分析类型)
+    window.AppState.currentEventSource = new EventSource(`/api/analysis_progress?date=${selectedDate}&category=${selectedCategory}&test_count=${testCount || ''}&type=concurrent`);
     
     window.AppState.currentEventSource.onmessage = function(event) {
         console.log('SSE received:', event.data);

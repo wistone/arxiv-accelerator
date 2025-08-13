@@ -21,6 +21,7 @@ except ImportError:
 from backend.services.analysis_service import analyze_paper
 from backend.services.arxiv_service import import_arxiv_papers
 from backend.services.affiliation_service import get_author_affiliations, clear_affiliation_cache
+from backend.services.concurrent_analysis_service import get_concurrent_service, run_performance_comparison
 from backend.clients.ai_client import DoubaoClient
 from backend.db import repo as db_repo
 
@@ -349,6 +350,114 @@ def analyze_papers():
     except Exception as e:
         return jsonify({'error': f'启动分析失败: {str(e)}'}), 500
 
+@app.route('/api/analyze_papers_concurrent', methods=['POST'])
+def analyze_papers_concurrent():
+    """启动并发论文分析（5路并发）"""
+    try:
+        data = request.get_json()
+        selected_date = data.get('date')
+        selected_category = data.get('category', 'cs.CV')
+        range_type = data.get('range_type', 'full')
+        workers = data.get('workers', 5)  # 允许前端指定并发数
+
+        if not selected_date:
+            return jsonify({'error': '请选择日期'}), 400
+
+        # prompt: multi-modal-llm
+        prompt_id = db_repo.get_prompt_id_by_name('multi-modal-llm')
+        if not prompt_id:
+            return jsonify({'error': '缺少 prompt: multi-modal-llm'}), 500
+
+        # 任务互斥：如已存在同日同类任务，直接返回当前进度
+        task_id = f"{selected_date}-{selected_category}-concurrent"
+        with analysis_lock:
+            if analysis_progress.get(task_id, {}).get('status') in ('starting','processing'):
+                return jsonify({'success': True, 'task_id': task_id, 'message': '已有并发任务在运行，返回其进度'}), 200
+
+        # 计算目标数量与补齐需求
+        target_map = {'top5': 5, 'top10': 10, 'top20': 20}
+        target_n = target_map.get(range_type)
+
+        status = db_repo.get_analysis_status(selected_date, selected_category, prompt_id)
+        if target_n is not None:
+            if status['completed'] >= target_n:
+                return jsonify({'success': True, 'task_id': task_id, 'message': '已达到目标数量，无需再次分析'}), 200
+            need = target_n - status['completed']
+        else:
+            # full：对全部 pending
+            need = status['pending']
+
+        if need <= 0:
+            return jsonify({'success': True, 'task_id': task_id, 'message': '无需分析'}), 200
+
+        # 仅筛选未分析的论文，遵循顺序与搜索一致
+        pending = db_repo.list_unanalyzed_papers(selected_date, selected_category, prompt_id, limit=need)
+        if not pending:
+            return jsonify({'success': True, 'task_id': task_id, 'message': '无待分析论文'}), 200
+
+        # 启动后台并发分析任务
+        thread = threading.Thread(
+            target=run_concurrent_analysis_task,
+            args=(task_id, pending, selected_date, selected_category, prompt_id, workers)
+        )
+        thread.daemon = True
+        thread.start()
+
+        return jsonify({
+            'success': True, 
+            'task_id': task_id, 
+            'message': f'并发分析任务已启动 ({workers}路并发)',
+            'workers': workers,
+            'total_papers': len(pending)
+        }), 200
+    except Exception as e:
+        return jsonify({'error': f'启动并发分析失败: {str(e)}'}), 500
+
+@app.route('/api/performance_comparison', methods=['POST'])
+def performance_comparison():
+    """运行性能对比测试（1路 vs 5路并发）"""
+    try:
+        data = request.get_json()
+        selected_date = data.get('date')
+        selected_category = data.get('category', 'cs.CV')
+        test_count = data.get('test_count', 10)  # 默认测试10篇
+
+        if not selected_date:
+            return jsonify({'error': '请选择日期'}), 400
+
+        # prompt: multi-modal-llm
+        prompt_id = db_repo.get_prompt_id_by_name('multi-modal-llm')
+        if not prompt_id:
+            return jsonify({'error': '缺少 prompt: multi-modal-llm'}), 500
+
+        # 获取待分析论文
+        pending = db_repo.list_unanalyzed_papers(selected_date, selected_category, prompt_id, limit=test_count)
+        if len(pending) < test_count:
+            return jsonify({'error': f'可用论文数量不足，需要{test_count}篇，实际{len(pending)}篇'}), 400
+
+        # 读取system prompt
+        system_prompt_file = "prompt/system_prompt.md"
+        if not os.path.exists(system_prompt_file):
+            return jsonify({'error': 'system_prompt.md文件不存在'}), 500
+        
+        with open(system_prompt_file, 'r', encoding='utf-8') as f:
+            system_prompt = f.read().strip()
+
+        # 运行性能对比
+        task_id = f"{selected_date}-{selected_category}-comparison"
+        comparison_result = run_performance_comparison(
+            task_id, pending, prompt_id, system_prompt, analysis_progress, test_count
+        )
+
+        return jsonify({
+            'success': True,
+            'comparison_result': comparison_result,
+            'message': f'性能对比完成，测试了{test_count}篇论文'
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'error': f'性能对比测试失败: {str(e)}'}), 500
+
 # def auto_commit_analysis_file(output_file, task_id):
 #     """
 #     ⚠️  已废弃：自动提交分析结果文件到 GitHub
@@ -484,13 +593,74 @@ def run_db_analysis_task(task_id, pending_papers, selected_date, selected_catego
         with analysis_lock:
             analysis_progress[task_id]['status'] = 'error'
             analysis_progress[task_id]['error'] = str(e)
+
+def run_concurrent_analysis_task(task_id, pending_papers, selected_date, selected_category, prompt_id, workers=5):
+    """运行并发分析任务"""
+    import sys
+    try:
+        # 初始化进度跟踪
+        with analysis_lock:
+            analysis_progress[task_id] = {
+                'current': 0,
+                'total': len(pending_papers),
+                'status': 'starting',
+                'paper': None,
+                'analysis_result': None,
+                'workers': workers,
+                'start_time': time.time()
+            }
+
+        # 读取system prompt
+        system_prompt_file = "prompt/system_prompt.md"
+        if not os.path.exists(system_prompt_file):
+            raise Exception("system_prompt.md文件不存在")
+        with open(system_prompt_file, 'r', encoding='utf-8') as f:
+            system_prompt = f.read().strip()
+
+        print(f"🚀 [并发分析] 启动任务 {task_id}，{workers}路并发，总计 {len(pending_papers)} 篇论文")
+
+        # 获取并发分析服务
+        concurrent_service = get_concurrent_service(workers=workers)
+        
+        # 定义进度更新回调
+        def update_progress_callback(task_id, completed, total):
+            # 这个回调在并发服务中已经更新了进度，这里可以做额外的日志
+            pass
+
+        # 执行并发分析
+        result_stats = concurrent_service.analyze_papers_concurrent(
+            task_id, pending_papers, prompt_id, system_prompt, 
+            analysis_progress, update_progress_callback
+        )
+
+        # 更新最终状态
+        with analysis_lock:
+            analysis_progress[task_id].update({
+                'status': 'completed',
+                'final_stats': result_stats,
+                'end_time': time.time()
+            })
+
+        print(f"🎉 [并发分析] 任务 {task_id} 完成！"
+              f"成功:{result_stats['success_count']}, 失败:{result_stats['error_count']}, "
+              f"总耗时:{result_stats['total_elapsed_time']:.1f}s")
+
+    except Exception as e:
+        print(f"❌ [并发分析] 任务 {task_id} 失败: {e}")
+        with analysis_lock:
+            analysis_progress[task_id]['status'] = 'error'
+            analysis_progress[task_id]['error'] = str(e)
 @app.route('/api/analysis_progress')
 def analysis_progress_stream():
     """Server-Sent Events流，用于实时获取分析进度"""
     # 在请求上下文中获取参数
     date = request.args.get('date')
     category = request.args.get('category', 'cs.CV')
-    task_id = f"{date}-{category}"
+    task_type = request.args.get('type', 'serial')  # serial or concurrent
+    if task_type == 'concurrent':
+        task_id = f"{date}-{category}-concurrent"
+    else:
+        task_id = f"{date}-{category}"
     
     def generate(task_id):
         import sys
@@ -528,7 +698,12 @@ def analysis_progress_stream():
                     'total': progress.get('total', 0),
                     'status': status,
                     'paper': progress.get('paper'),
-                    'analysis_result': progress.get('analysis_result')
+                    'analysis_result': progress.get('analysis_result'),
+                    'workers': progress.get('workers', 1),
+                    'success_count': progress.get('success_count', 0),
+                    'error_count': progress.get('error_count', 0),
+                    'processing_papers': progress.get('processing_papers', []),
+                    'last_completed_paper': progress.get('last_completed_paper')
                 }
                 
                 print(f"SSE Sending data - current: {current}, status: {status}, has_result: {bool(data['analysis_result'])}", file=sys.stderr)
