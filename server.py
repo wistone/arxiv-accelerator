@@ -53,7 +53,7 @@ analysis_lock = threading.Lock()
 # 设置静态文件目录
 @app.route('/')
 def index():
-    return send_from_directory('.', 'arxiv_assistant.html')
+    return send_from_directory('./frontend', 'index.html')
 
 @app.route('/health')
 def health_check():
