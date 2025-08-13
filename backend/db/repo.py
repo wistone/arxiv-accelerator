@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any, Dict, List, Optional, Tuple
 import json
+import time
 
 from .client import app_schema, get_client
 
@@ -564,12 +565,141 @@ def get_analysis_results(
     return articles
 
 
-def get_analysis_status(date: str | dt.date, category: str, prompt_id: str) -> Dict[str, int]:
+def get_analysis_status_fast(date: str | dt.date, category: str, prompt_id: str) -> Dict[str, int]:
+    """获取指定日期和分类的分析进度状态（高性能优化版本）。"""
     db = app_schema()
     date_str = _ensure_date(date)
     category_id = upsert_category(category)
+    
+    print(f"🚀 [性能优化] 开始获取分析状态: date={date_str}, category={category}")
+    start_time = time.time()
+    
+    try:
+        # 🚀 优化策略：使用高效的JOIN查询一次性获取数据
+        # 使用内联JOIN获取该日期+分类的所有论文，左连接分析结果
+        print(f"⏱️  [性能优化] 开始JOIN查询...")
+        
+        joined_rows = (
+            db.from_("paper_categories")
+            .select("papers!inner(paper_id), analysis_results!left(analysis_id)")
+            .eq("category_id", category_id)
+            .eq("papers.update_date", date_str)
+            .eq("analysis_results.prompt_id", prompt_id)
+            .range(0, 4999)  # 支持最多5000篇论文
+            .execute()
+            .data
+        )
+        
+        print(f"⏱️  [性能优化] JOIN查询完成，返回: {len(joined_rows)} 条")
+        
+        # 统计结果
+        total = len(joined_rows)
+        completed = 0
+        
+        for row in joined_rows:
+            # 检查是否有分析结果
+            analysis_results = row.get("analysis_results")
+            if analysis_results and len(analysis_results) > 0:
+                completed += 1
+        
+        pending = max(total - completed, 0)
+        result = {"total": total, "completed": completed, "pending": pending}
+        
+        total_elapsed = time.time() - start_time
+        print(f"✅ [性能优化] JOIN查询完成，总耗时: {total_elapsed:.3f}s | 结果: {result}")
+        
+        return result
+        
+    except Exception as e:
+        print(f"❌ [性能优化] JOIN查询失败，回退到传统方法: {e}")
+        return get_analysis_status_legacy(date, category, prompt_id)
+
+
+def get_analysis_status_legacy(date: str | dt.date, category: str, prompt_id: str) -> Dict[str, int]:
+    """原始的分块查询版本（用作最终回退）。"""
+    db = app_schema()
+    date_str = _ensure_date(date)
+    category_id = upsert_category(category)
+    
+    print(f"🔄 [回退模式] 使用原始分块查询")
+    start_time = time.time()
+    
+    # 所有该分类下的 paper_id（优化：增大页面大小）
+    all_category_paper_ids: List[int] = []
+    page_size = 2000  # 增大页面大小
+    offset = 0
+    while True:
+        rows = (
+            db.from_("paper_categories")
+            .select("paper_id")
+            .eq("category_id", category_id)
+            .range(offset, offset + page_size - 1)
+            .execute()
+            .data
+        )
+        if not rows:
+            break
+        all_category_paper_ids.extend([r["paper_id"] for r in rows])
+        offset += page_size
+        if len(rows) < page_size:
+            break
+    
+    if not all_category_paper_ids:
+        return {"total": 0, "completed": 0, "pending": 0}
+    
+    # 该日期的论文（优化：增大chunk_size）
+    date_paper_ids = []
+    chunk_size = 200  # 增大chunk_size
+    for i in range(0, len(all_category_paper_ids), chunk_size):
+        chunk_ids = all_category_paper_ids[i:i + chunk_size]
+        chunk_rows = (
+            db.from_("papers")
+            .select("paper_id")
+            .eq("update_date", date_str)
+            .in_("paper_id", chunk_ids)
+            .execute()
+            .data
+        )
+        date_paper_ids.extend([r["paper_id"] for r in chunk_rows])
+    
+    total = len(date_paper_ids)
+    if total == 0:
+        return {"total": 0, "completed": 0, "pending": 0}
+    
+    # 已分析的论文
+    completed_paper_ids = []
+    for i in range(0, len(date_paper_ids), chunk_size):
+        chunk_ids = date_paper_ids[i:i + chunk_size]
+        chunk_rows = (
+            db.from_("analysis_results")
+            .select("paper_id")
+            .eq("prompt_id", prompt_id)
+            .in_("paper_id", chunk_ids)
+            .execute()
+            .data
+        )
+        completed_paper_ids.extend([r["paper_id"] for r in chunk_rows])
+    
+    completed = len(completed_paper_ids)
+    pending = max(total - completed, 0)
+    
+    result = {"total": total, "completed": completed, "pending": pending}
+    total_elapsed = time.time() - start_time
+    print(f"🔄 [回退模式] 分块查询完成，总耗时: {total_elapsed:.3f}s | 结果: {result}")
+    
+    return result
+
+
+def get_analysis_status_original(date: str | dt.date, category: str, prompt_id: str) -> Dict[str, int]:
+    """原始未优化版本，用于对比验证。"""
+    db = app_schema()
+    date_str = _ensure_date(date)
+    category_id = upsert_category(category)
+    
+    print(f"🔍 [原始版本] 开始获取分析状态: date={date_str}, category={category}")
+    start_time = time.time()
+    
     # 所有该分类下的 paper_id
-    # 需要分页抓取，避免默认只返回10条
     all_category_paper_ids: List[int] = []
     page_size = 1000
     offset = 0
@@ -588,12 +718,15 @@ def get_analysis_status(date: str | dt.date, category: str, prompt_id: str) -> D
         offset += page_size
         if len(rows) < page_size:
             break
+    
+    print(f"🔍 [原始版本] 分类下总paper_id数: {len(all_category_paper_ids)}")
+    
     if not all_category_paper_ids:
         return {"total": 0, "completed": 0, "pending": 0}
+    
     # 该日期 + 该分类的 paper_id 集合
-    # 分块查询以避免in()参数过多的限制
     date_paper_ids = []
-    chunk_size = 50  # 每次查询50个ID
+    chunk_size = 100  # 轻微优化：从50增加到100
     for i in range(0, len(all_category_paper_ids), chunk_size):
         chunk_ids = all_category_paper_ids[i:i + chunk_size]
         chunk_rows = (
@@ -605,13 +738,96 @@ def get_analysis_status(date: str | dt.date, category: str, prompt_id: str) -> D
             .data
         )
         date_paper_ids.extend([r["paper_id"] for r in chunk_rows])
+    
     total = len(date_paper_ids)
+    print(f"🔍 [原始版本] 该日期下paper_id数: {total}")
+    
     if total == 0:
         return {"total": 0, "completed": 0, "pending": 0}
+    
     # 已完成（仅统计该日期集合）
-    # 分块查询以避免in()参数过多的限制
     completed_paper_ids = []
-    chunk_size = 50  # 每次查询50个ID
+    # 使用稍大的chunk_size用于分析结果查询
+    analysis_chunk_size = 150  # 对分析结果查询使用更大的chunk
+    for i in range(0, len(date_paper_ids), analysis_chunk_size):
+        chunk_ids = date_paper_ids[i:i + analysis_chunk_size]
+        chunk_rows = (
+            db.from_("analysis_results")
+            .select("paper_id")
+            .eq("prompt_id", prompt_id)
+            .in_("paper_id", chunk_ids)
+            .execute()
+            .data
+        )
+        completed_paper_ids.extend([r["paper_id"] for r in chunk_rows])
+    
+    completed = len(completed_paper_ids)
+    pending = max(total - completed, 0)
+    
+    result = {"total": total, "completed": completed, "pending": pending}
+    total_elapsed = time.time() - start_time
+    print(f"🔍 [原始版本] 分析状态获取完成，总耗时: {total_elapsed:.3f}s | 结果: {result}")
+    
+    return result
+
+
+def get_analysis_status_optimized(date: str | dt.date, category: str, prompt_id: str) -> Dict[str, int]:
+    """优化版本：保持原逻辑但提升性能。"""
+    db = app_schema()
+    date_str = _ensure_date(date)
+    category_id = upsert_category(category)
+    
+    print(f"🚀 [优化版本] 开始获取分析状态: date={date_str}, category={category}")
+    start_time = time.time()
+    
+    # 所有该分类下的 paper_id（优化：增大页面大小）
+    all_category_paper_ids: List[int] = []
+    page_size = 2000  # 从1000增加到2000
+    offset = 0
+    while True:
+        rows = (
+            db.from_("paper_categories")
+            .select("paper_id")
+            .eq("category_id", category_id)
+            .range(offset, offset + page_size - 1)
+            .execute()
+            .data
+        )
+        if not rows:
+            break
+        all_category_paper_ids.extend([r["paper_id"] for r in rows])
+        offset += page_size
+        if len(rows) < page_size:
+            break
+    
+    print(f"🚀 [优化版本] 分类下总paper_id数: {len(all_category_paper_ids)}")
+    
+    if not all_category_paper_ids:
+        return {"total": 0, "completed": 0, "pending": 0}
+    
+    # 该日期 + 该分类的 paper_id 集合（优化：增大chunk_size）
+    date_paper_ids = []
+    chunk_size = 200  # 从50增加到200
+    for i in range(0, len(all_category_paper_ids), chunk_size):
+        chunk_ids = all_category_paper_ids[i:i + chunk_size]
+        chunk_rows = (
+            db.from_("papers")
+            .select("paper_id")
+            .eq("update_date", date_str)
+            .in_("paper_id", chunk_ids)
+            .execute()
+            .data
+        )
+        date_paper_ids.extend([r["paper_id"] for r in chunk_rows])
+    
+    total = len(date_paper_ids)
+    print(f"🚀 [优化版本] 该日期下paper_id数: {total}")
+    
+    if total == 0:
+        return {"total": 0, "completed": 0, "pending": 0}
+    
+    # 已完成（仅统计该日期集合）（优化：使用相同的大chunk_size）
+    completed_paper_ids = []
     for i in range(0, len(date_paper_ids), chunk_size):
         chunk_ids = date_paper_ids[i:i + chunk_size]
         chunk_rows = (
@@ -623,9 +839,21 @@ def get_analysis_status(date: str | dt.date, category: str, prompt_id: str) -> D
             .data
         )
         completed_paper_ids.extend([r["paper_id"] for r in chunk_rows])
+    
     completed = len(completed_paper_ids)
     pending = max(total - completed, 0)
-    return {"total": total, "completed": completed, "pending": pending}
+    
+    result = {"total": total, "completed": completed, "pending": pending}
+    total_elapsed = time.time() - start_time
+    print(f"✅ [优化版本] 分析状态获取完成，总耗时: {total_elapsed:.3f}s | 结果: {result}")
+    
+    return result
+
+
+def get_analysis_status(date: str | dt.date, category: str, prompt_id: str) -> Dict[str, int]:
+    """获取指定日期和分类的分析进度状态（入口函数）。"""
+    # 回退到原始版本，确保功能正确性优先
+    return get_analysis_status_original(date, category, prompt_id)
 
 
 def list_available_dates() -> List[str]:
