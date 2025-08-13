@@ -14,8 +14,9 @@ frontend/
 │   ├── table.js       # 表格渲染
 │   ├── ui.js          # UI 工具
 │   └── url.js         # URL 管理
-└── css/         # 样式文件
-    └── styles.css     # 主样式
+├── css/         # 样式文件
+│   └── styles.css     # 主样式
+├── index.html   # 主页面 (根目录)
 ```
 
 ## 技术栈
