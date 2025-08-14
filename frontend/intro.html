@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>如何构建一个属于自己的Paper Judger</title>
+    <!-- 样式表文件 -->
+    <link rel="stylesheet" href="css/styles.css">
+    <style>
+        /* 添加自定义样式用于展开/合上动效 */
+        .expandable-section {
+            margin: 20px 0;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            overflow: hidden;
+            background: #fff;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .expandable-header {
+            padding: 15px 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: background 0.3s ease;
+        }
+
+        .expandable-header:hover {
+            background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
+        }
+
+        .expandable-title {
+            font-weight: 600;
+            font-size: 16px;
+        }
+
+        .expandable-icon {
+            font-size: 18px;
+            transition: transform 0.3s ease;
+        }
+
+        .expandable-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out;
+            background: #f8f9fa;
+        }
+
+        .expandable-content.expanded {
+            max-height: 1000px;
+            transition: max-height 0.5s ease-in;
+        }
+
+        .expandable-inner {
+            padding: 20px;
+        }
+
+        .prompt-content {
+            background: white;
+            border-radius: 6px;
+            padding: 20px;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.6;
+            border-left: 4px solid #667eea;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+
+        .step-card {
+            background: white;
+            border-radius: 10px;
+            padding: 25px;
+            margin: 20px 0;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            border-left: 5px solid #667eea;
+        }
+
+        .step-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .step-number {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            margin-right: 15px;
+        }
+
+        .step-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .step-description {
+            color: #666;
+            line-height: 1.6;
+            margin-bottom: 15px;
+        }
+
+        .external-link {
+            display: inline-block;
+            padding: 8px 16px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            transition: all 0.3s ease;
+            margin-right: 10px;
+        }
+
+        .external-link:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            color: white;
+        }
+
+        .note-section {
+            background: #fff9e6;
+            border: 1px solid #ffd700;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+
+        .note-title {
+            font-weight: 600;
+            color: #b8860b;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+        }
+
+        .note-title::before {
+            content: "⚠️";
+            margin-right: 8px;
+        }
+
+        .code-block {
+            background: #f4f4f4;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 14px;
+            margin: 10px 0;
+            overflow-x: auto;
+        }
+
+        .back-link {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: rgba(102, 126, 234, 0.9);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 25px;
+            text-decoration: none;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            z-index: 1000;
+        }
+
+        .back-link:hover {
+            background: rgba(102, 126, 234, 1);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <a href="index.html" class="back-link">← 返回主页</a>
+    
+    <div class="container">
+        <div class="header">
+            <h1>🤖 如何构建一个属于自己的Paper Judger</h1>
+            <p>通过智能化的方式，构建专属的论文筛选和评判系统</p>
+        </div>
+
+        <!-- Step 1 -->
+        <div class="step-card">
+            <div class="step-header">
+                <div class="step-number">1</div>
+                <div class="step-title">让Claude4 Opus分析论文规律</div>
+            </div>
+            <div class="step-description">
+                让牛逼的Claude4 Opus读一下最近我关注的paper，根据title和abstract总结规律，写一段挑paper的System Prompt
+            </div>
+            <a href="https://claude.ai/share/95226e7c-3f9d-4019-a185-a32dd9d3fbdd" class="external-link" target="_blank">
+                🔗 查看Claude对话记录
+            </a>
+        </div>
+
+        <!-- Step 2 -->
+        <div class="step-card">
+            <div class="step-header">
+                <div class="step-number">2</div>
+                <div class="step-title">使用GPT O3优化筛选规则</div>
+            </div>
+            <div class="step-description">
+                让GPT O3把这个筛选规则改写成一个Judge Prompt，输出json格式
+            </div>
+            <a href="https://chatgpt.com/share/689d8d73-4300-8011-b70e-a3f6b9173060" class="external-link" target="_blank">
+                🔗 查看GPT对话记录
+            </a>
+        </div>
+
+        <!-- 最终Prompt -->
+        <div class="expandable-section">
+            <div class="expandable-header" onclick="toggleExpand('promptSection')">
+                <div class="expandable-title">📋 最终的multi model LLM论文打分器Prompt</div>
+                <div class="expandable-icon" id="promptIcon">▼</div>
+            </div>
+            <div class="expandable-content" id="promptSection">
+                <div class="expandable-inner">
+                    <div class="prompt-content" id="promptContent">正在加载Prompt内容...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 备注 -->
+        <div class="note-section">
+            <div class="note-title">备注</div>
+            <ol style="margin: 0; padding-left: 20px; line-height: 1.8;">
+                <li>为什么是这个步骤获取的prompt，我并没有仔细对比过，也许换用其他智商类似的agentic SOTA模型都可以，仅供参考</li>
+                <li>这个步骤的核心是显示的给出筛选规则，并最终形成一套打分成json的prompt，强烈建议仔细研读思考这个prompt本身的合理性，和自己挑paper的insight是否一致</li>
+                <li>最终的字段必须包含以下这两个字段：</li>
+            </ol>
+            <div class="code-block">
+{
+  "pass_filter": true/false,
+  "raw_score": 8
+}
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 展开/合上功能
+        function toggleExpand(sectionId) {
+            const content = document.getElementById(sectionId);
+            const icon = document.getElementById(sectionId.replace('Section', 'Icon'));
+            
+            if (content.classList.contains('expanded')) {
+                content.classList.remove('expanded');
+                icon.style.transform = 'rotate(0deg)';
+                icon.textContent = '▼';
+            } else {
+                content.classList.add('expanded');
+                icon.style.transform = 'rotate(180deg)';
+                icon.textContent = '▲';
+                
+                // 如果是prompt内容，加载实际内容
+                if (sectionId === 'promptSection') {
+                    loadPromptContent();
+                }
+            }
+        }
+
+        // 加载Prompt内容
+        function loadPromptContent() {
+            const promptContent = document.getElementById('promptContent');
+            
+            // 这里模拟从服务器加载Prompt内容
+            const content = `你是一位 "多模态大模型论文甄别官"，目标是在给定论文 Title + Abstract 时，输出可解释、可调节的相关度评价。
+流程分两步：过滤 (Step-1) → 评分 (Step-2)。
+
+————————————  Step-1 | 硬门槛过滤  ————————————
+1. 核心特征（Core Features）——论文必须至少满足 ≥2 项  
+   • multi_modal  涉及视觉 **且** 语言（文本 / 图像 / 视频 / 3D / 音频任两种或以上）  
+   • large_scale  使用大规模模型（LMM / MLLM / VLM / ≥ billion-param）  
+   • unified_framework 同一框架解决多任务（生成、理解、推理等）  
+   • novel_paradigm 采用新颖训练范式（autoregressive, diffusion, RL, chain-of-thought …）  
+
+2. 排除条件（Exclude If ANY）——若命中即 pass_filter = false，后续分数设 0  
+   • 仅单一模态（纯文本或纯视觉等）  
+   • 纯理论无实证  
+   • 仅微小增量、无显著新意  
+   • 过窄的领域专用、无可迁移性  
+
+输出字段（若被排除须写原因）  
+{
+  "pass_filter": true/false,
+  "exclude_reason": "..."
+}
+
+———————————— Step-2 | 分项打分 ————————————
+仅当 pass_filter = true 时执行。
+
+▶ 加分维度（Plus Features）——命中一项记 1 分，可多选
+• new_benchmark  提出新基准或数据集
+• sota     刷新已有基准 SOTA
+• fusion_arch  融合架构创新
+• real_world_app 面向真实应用（机器人、动画、3D 生成、视频合成 …）
+• reasoning_planning 强调推理 / 规划 / 组合式理解
+• scaling_modalities 扩展多语言、多模态或多领域
+• open_source  公开代码 / 模型 / 数据
+
+▶ 关键词优先（Soft Hints）——出现下列关键词或同义词可作为判断线索
+"multi-modal" "vision-language" "MLLM" "VLM" autoregressive diffusion reasoning generation understanding synthesis planning large-scale multilingual …
+
+———————————— 计分公式与权重（默认） ————————————
+
+core_score = Σ(core_feature_i) × 2
+plus_score = Σ(plus_feature_j) × 1
+raw_score = core_score + plus_score
+norm_score = min(10, raw_score) // 映射到 0–10
+
+———————————— 输出要求 ————————————
+
+仅输出合法 JSON，无多余文本或注释
+
+reason 最长 2 句：先结论，后关键证据
+浮点分统一保留 1 位小数
+
+输入json参考：
+1. 如果pass filter为true，输出完整json
+{
+  "pass_filter": true,
+  "exclude_reason": "",
+  "core_features": {
+    "multi_modal": 1,
+    "large_scale": 1,
+    "unified_framework": 0,
+    "novel_paradigm": 0
+  },
+  "plus_features": {
+    "new_benchmark": 0,
+    "sota": 1,
+    "fusion_arch": 0,
+    "real_world_app": 1,
+    "reasoning_planning": 1,
+    "scaling_modalities": 0,
+    "open_source": 1
+  },
+  "raw_score": 8,
+  "norm_score": 8,
+  "reason": "满足多模态与大规模两大核心特征，并在推理、真实应用及开源方面表现突出。"
+}
+2. 若 pass_filter 为 false，其他字段可简化为
+{
+  "pass_filter": false,
+  "exclude_reason": "single-modality clinical NLP",
+  "raw_score": 0,
+  "norm_score": 0,
+  "reason": "Excluded: single-modality clinical NLP"
+}`;
+            
+            promptContent.textContent = content;
+        }
+
+        // 页面加载完成后的初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('Intro page loaded successfully');
+        });
+    </script>
+</body>
+</html>
