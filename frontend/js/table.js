@@ -20,12 +20,9 @@ function displayAnalysisResults(articles) {
     let headerHTML = `
         <th class="number-cell">序号</th>
         <th class="filter-cell">筛选结果</th>
-        <th class="score-cell sortable" onclick="sortTable('raw_score')">
-            总分
-            <span class="sort-indicator" id="raw_score_indicator">↕️</span>
-        </th>
+        <th class="score-cell sortable" onclick="sortTable('raw_score')">总分<span class="sort-indicator" id="raw_score_indicator">↕️</span></th>
         <th class="details-cell">详细分析</th>
-        <th>标题</th>
+        <th class="title-cell">标题</th>
         <th class="authors-cell">作者</th>
         <th class="affiliations-cell">作者机构</th>
         <th class="abstract-cell">摘要</th>
@@ -62,7 +59,7 @@ function displayAnalysisFailure(failInfo) {
         <th class="number-cell">序号</th>
         <th class="filter-cell">错误信息</th>
         <th class="details-cell">失败详情</th>
-        <th>标题</th>
+        <th class="title-cell">标题</th>
         <th class="authors-cell">作者</th>
         <th class="abstract-cell">摘要</th>
     `;
