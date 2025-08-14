@@ -166,28 +166,61 @@
             position: relative;
             text-align: center;
             margin-bottom: 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 10px;
         }
 
         .back-link {
             position: absolute;
-            top: 50px;
-            left: 20px;
-            background: #4767b2;
+            top: 50%;
+            left: 30px;
+            transform: translateY(-50%);
+            background: rgba(255, 255, 255, 0.2);
             color: white;
-            padding: 10px 16px;
-            border-radius: 6px;
+            padding: 12px 20px;
+            border-radius: 8px;
             text-decoration: none;
             font-weight: 600;
+            font-size: 14px;
             transition: all 0.3s ease;
-            box-shadow: 0 2px 4px rgba(25, 72, 182, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            backdrop-filter: blur(10px);
             z-index: 10;
         }
 
         .back-link:hover {
-            background: #051c51;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(25, 72, 182, 0.4);
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-50%) translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
             color: white;
+        }
+
+        /* 响应式设计：移动设备上的调整 */
+        @media (max-width: 768px) {
+            .back-link {
+                position: static;
+                transform: none;
+                display: inline-block;
+                margin-bottom: 15px;
+                font-size: 13px;
+                padding: 10px 16px;
+            }
+            
+            .back-link:hover {
+                transform: translateY(-2px);
+            }
+
+            .header {
+                padding: 20px;
+                text-align: left;
+            }
+
+            .header h1, .header p {
+                text-align: center;
+                margin-top: 10px;
+            }
         }
     </style>
 </head>
@@ -230,7 +263,7 @@
         <!-- 最终Prompt -->
         <div class="expandable-section">
             <div class="expandable-header" onclick="toggleExpand('promptSection')">
-                <div class="expandable-title">📋 当前默认的multi model LLM论文打分器Prompt</div>
+                <div class="expandable-title">📋 当前默认的「Multi Model LLM论文打分器」Prompt示例</div>
                 <div class="expandable-icon" id="promptIcon">▼</div>
             </div>
             <div class="expandable-content" id="promptSection">

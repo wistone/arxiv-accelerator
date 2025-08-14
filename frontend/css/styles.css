@@ -203,6 +203,7 @@ body {
     color: white;
     padding: 30px;
     text-align: center;
+    position: relative;
 }
 
 .header h1 {
@@ -214,6 +215,46 @@ body {
 .header p {
     font-size: 1.1em;
     opacity: 0.9;
+}
+
+.intro-link {
+    position: absolute;
+    top: 50%;
+    right: 30px;
+    transform: translateY(-50%);
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    padding: 12px 20px;
+    border-radius: 8px;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 14px;
+    transition: all 0.3s ease;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    backdrop-filter: blur(10px);
+}
+
+.intro-link:hover {
+    background: rgba(255, 255, 255, 0.3);
+    transform: translateY(-50%) translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    color: white;
+}
+
+/* 响应式设计：移动设备上的调整 */
+@media (max-width: 768px) {
+    .intro-link {
+        position: static;
+        transform: none;
+        display: inline-block;
+        margin-top: 15px;
+        font-size: 13px;
+        padding: 10px 16px;
+    }
+    
+    .intro-link:hover {
+        transform: translateY(-2px);
+    }
 }
 
 /* 信息提示框样式 */
