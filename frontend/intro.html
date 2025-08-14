@@ -9,7 +9,7 @@
     <style>
         /* 添加自定义样式用于展开/合上动效 */
         .expandable-section {
-            margin: 20px 0;
+            margin: 30px 20px;
             border: 1px solid #e0e0e0;
             border-radius: 8px;
             overflow: hidden;
@@ -63,10 +63,10 @@
             border-radius: 6px;
             padding: 20px;
             font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-            font-size: 14px;
-            line-height: 1.6;
+            font-size: 12px;
+            line-height: 1.5;
             border-left: 4px solid #667eea;
-            max-height: 400px;
+            max-height: 600px;
             overflow-y: auto;
             white-space: pre-wrap;
         }
@@ -75,7 +75,7 @@
             background: white;
             border-radius: 10px;
             padding: 25px;
-            margin: 20px 0;
+            margin: 30px 20px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
             border-left: 5px solid #667eea;
         }
@@ -96,7 +96,7 @@
             align-items: center;
             justify-content: center;
             font-weight: bold;
-            margin-right: 15px;
+            margin-right: 10px;
         }
 
         .step-title {
@@ -114,18 +114,20 @@
         .external-link {
             display: inline-block;
             padding: 8px 16px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            background: #f8f9fa;
+            color: #495057;
             text-decoration: none;
+            border: 1px solid #dee2e6;
             border-radius: 5px;
             transition: all 0.3s ease;
             margin-right: 10px;
+            font-weight: 500;
         }
 
         .external-link:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-            color: white;
+            color: #495057;
+            border-color: #adb5bd;
+            text-decoration: underline;
         }
 
         .note-section {
@@ -133,7 +135,7 @@
             border: 1px solid #ffd700;
             border-radius: 8px;
             padding: 20px;
-            margin: 20px 0;
+            margin: 30px 20px;
         }
 
         .note-title {
@@ -160,33 +162,39 @@
             overflow-x: auto;
         }
 
+        .header {
+            position: relative;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
         .back-link {
-            position: fixed;
-            top: 20px;
+            position: absolute;
+            top: 50px;
             left: 20px;
-            background: rgba(102, 126, 234, 0.9);
+            background: #4767b2;
             color: white;
-            padding: 10px 15px;
-            border-radius: 25px;
+            padding: 10px 16px;
+            border-radius: 6px;
             text-decoration: none;
-            font-weight: 500;
+            font-weight: 600;
             transition: all 0.3s ease;
-            z-index: 1000;
+            box-shadow: 0 2px 4px rgba(25, 72, 182, 0.3);
+            z-index: 10;
         }
 
         .back-link:hover {
-            background: rgba(102, 126, 234, 1);
+            background: #051c51;
             transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            box-shadow: 0 4px 8px rgba(25, 72, 182, 0.4);
             color: white;
         }
     </style>
 </head>
-<body>
-    <a href="index.html" class="back-link">← 返回主页</a>
-    
+<body>    
     <div class="container">
         <div class="header">
+            <a href="index.html" class="back-link">← 返回主页</a>
             <h1>🤖 如何构建一个属于自己的Paper Judger</h1>
             <p>通过智能化的方式，构建专属的论文筛选和评判系统</p>
         </div>
@@ -201,7 +209,7 @@
                 让牛逼的Claude4 Opus读一下最近我关注的paper，根据title和abstract总结规律，写一段挑paper的System Prompt
             </div>
             <a href="https://claude.ai/share/95226e7c-3f9d-4019-a185-a32dd9d3fbdd" class="external-link" target="_blank">
-                🔗 查看Claude对话记录
+                🔗 查看对话链接
             </a>
         </div>
 
@@ -215,14 +223,14 @@
                 让GPT O3把这个筛选规则改写成一个Judge Prompt，输出json格式
             </div>
             <a href="https://chatgpt.com/share/689d8d73-4300-8011-b70e-a3f6b9173060" class="external-link" target="_blank">
-                🔗 查看GPT对话记录
+                🔗 查看对话链接
             </a>
         </div>
 
         <!-- 最终Prompt -->
         <div class="expandable-section">
             <div class="expandable-header" onclick="toggleExpand('promptSection')">
-                <div class="expandable-title">📋 最终的multi model LLM论文打分器Prompt</div>
+                <div class="expandable-title">📋 当前默认的multi model LLM论文打分器Prompt</div>
                 <div class="expandable-icon" id="promptIcon">▼</div>
             </div>
             <div class="expandable-content" id="promptSection">
@@ -237,8 +245,8 @@
             <div class="note-title">备注</div>
             <ol style="margin: 0; padding-left: 20px; line-height: 1.8;">
                 <li>为什么是这个步骤获取的prompt，我并没有仔细对比过，也许换用其他智商类似的agentic SOTA模型都可以，仅供参考</li>
-                <li>这个步骤的核心是显示的给出筛选规则，并最终形成一套打分成json的prompt，强烈建议仔细研读思考这个prompt本身的合理性，和自己挑paper的insight是否一致</li>
-                <li>最终的字段必须包含以下这两个字段：</li>
+                <li>这个步骤的核心是显示的给出筛选规则，并最终形成一套打分成Json的prompt，强烈建议仔细研读思考这个prompt本身的合理性，和自己挑paper的insight是否一致</li>
+                <li>最终的字段必须包含以下这两个字段，是后续前端筛选结果的判断依据：</li>
             </ol>
             <div class="code-block">
 {
