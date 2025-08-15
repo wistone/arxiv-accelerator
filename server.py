@@ -55,6 +55,11 @@ analysis_lock = threading.Lock()
 def index():
     return send_from_directory('./frontend', 'index.html')
 
+@app.route('/intro.html')
+@app.route('/intro')
+def intro():
+    return send_from_directory('./frontend', 'intro.html')
+
 @app.route('/health')
 def health_check():
     """健康检查端点，用于Render部署验证"""
