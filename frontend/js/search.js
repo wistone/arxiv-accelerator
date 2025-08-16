@@ -43,7 +43,12 @@ async function searchArticles() {
             // 更新URL状态
             updateUrlState('search', selectedDate, selectedCategory);
         } else {
-            showError(data.error || '搜索失败');
+            // 如果有search_url，显示带链接的错误消息
+            if (data.search_url) {
+                showErrorWithLink(data.error || '搜索失败', data.search_url);
+            } else {
+                showError(data.error || '搜索失败');
+            }
             // 禁用分析按钮
             document.getElementById('analyzeBtn').disabled = true;
             window.AppState.hasSearched = false;

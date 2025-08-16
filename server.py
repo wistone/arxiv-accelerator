@@ -222,8 +222,29 @@ def search_articles():
             return jsonify({'error': f'从数据库读取失败: {e}'}), 500
 
         if len(articles) == 0:
+            # 构建arXiv搜索URL供用户直接查看
+            import datetime as dt
+            import pytz
+            target_date = dt.datetime.strptime(selected_date, "%Y-%m-%d").date()
+            et_tz = pytz.timezone("US/Eastern")
+            start_et = et_tz.localize(dt.datetime.combine(target_date - dt.timedelta(days=1), dt.time(20, 0)))
+            end_et = et_tz.localize(dt.datetime.combine(target_date, dt.time(20, 0)))
+            start_utc = start_et.astimezone(dt.timezone.utc)
+            end_utc = end_et.astimezone(dt.timezone.utc)
+            start_date_str = start_utc.strftime("%Y%m%d%H%M%S")
+            end_date_str = end_utc.strftime("%Y%m%d%H%M%S")
+            
+            base = os.getenv("ARXIV_API_BASE", "https://export.arxiv.org/api/query")
+            search_url = (
+                f"{base}?"
+                f"search_query=cat:{selected_category}+AND+submittedDate:[{start_date_str}+TO+{end_date_str}]&"
+                "sortBy=submittedDate&sortOrder=descending&"
+                "max_results=2000"
+            )
+            
             return jsonify({
-                'error': f'当天没有新的{selected_category}论文被提交到arXiv，或数据尚未同步。请稍后重试。'
+                'error': f'当天没有新的{selected_category}论文被提交到arXiv，或数据尚未同步。请稍后重试。',
+                'search_url': search_url
             }), 404
 
         # 🚀 更新缓存

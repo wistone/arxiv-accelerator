@@ -56,6 +56,16 @@ function showError(message) {
     document.getElementById('error').style.display = 'block';
 }
 
+function showErrorWithLink(message, searchUrl) {
+    hideLoading();
+    // 隐藏成功消息
+    document.getElementById('success').style.display = 'none';
+    // 创建带链接的错误消息
+    const errorDiv = document.getElementById('error');
+    errorDiv.innerHTML = `${message} <a href="${searchUrl}" target="_blank" style="color: #4285f4; text-decoration: underline;">查看搜索API</a>`;
+    errorDiv.style.display = 'block';
+}
+
 function showSuccess(message) {
     hideLoading();
     // 隐藏错误消息
