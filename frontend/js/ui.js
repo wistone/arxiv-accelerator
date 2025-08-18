@@ -66,13 +66,31 @@ function showErrorWithLink(message, searchUrl) {
     errorDiv.style.display = 'block';
 }
 
-function showSuccess(message) {
+function showSuccess(message, buttonConfig = null) {
     hideLoading();
     // 隐藏错误消息
     document.getElementById('error').style.display = 'none';
-    // 显示成功消息
-    document.getElementById('success').textContent = message;
-    document.getElementById('success').style.display = 'block';
+    
+    // 清空并重新设置成功消息内容
+    const successDiv = document.getElementById('success');
+    successDiv.innerHTML = '';
+    
+    // 添加文本消息
+    const messageSpan = document.createElement('span');
+    messageSpan.textContent = message;
+    successDiv.appendChild(messageSpan);
+    
+    // 如果有按钮配置，添加按钮
+    if (buttonConfig) {
+        const button = document.createElement('button');
+        button.textContent = buttonConfig.text;
+        button.className = 'filter-btn';
+        button.style.marginLeft = '10px';
+        button.onclick = buttonConfig.onclick;
+        successDiv.appendChild(button);
+    }
+    
+    successDiv.style.display = 'block';
 }
 
 function hideAllMessages() {

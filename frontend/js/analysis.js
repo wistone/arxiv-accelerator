@@ -293,7 +293,14 @@ async function loadAnalysisResults(rangeTypeToLoad = 'full') {
                 showError(`分析失败：${data.fail_info.total_papers} 篇论文的AI分析都失败了`);
             } else {
                 displayAnalysisResults(data.articles);
-                showSuccess(`分析完成！共处理 ${data.total} 篇论文`);
+                
+                // 创建筛选按钮配置
+                const buttonConfig = {
+                    text: '筛选当日18:00后的补充论文',
+                    onclick: () => filterAfter18Papers(data.articles, data.total)
+                };
+                
+                showSuccess(`分析完成！共处理 ${data.total} 篇论文`, buttonConfig);
             }
             
             // 更新URL状态 - 修正limit参数
@@ -325,4 +332,60 @@ function retryAnalysis() {
     // 重新打开分析模态框
     document.getElementById('analysisModal').style.display = 'block';
     showAnalysisOptions({articles: window.AppState.currentArticles});
+}
+
+// 筛选18:00后的补充论文
+function filterAfter18Papers(allArticles, totalCount) {
+    if (!allArticles || allArticles.length === 0) {
+        showError('没有论文数据可供筛选');
+        return;
+    }
+    
+    // 筛选出update_time在18:00:00至23:59:59之间的论文
+    const after18Articles = allArticles.filter(article => {
+        if (!article.update_time) return false;
+        
+        // 解析时间字符串 (格式应该是 HH:MM:SS)
+        const timeStr = article.update_time;
+        const timeMatch = timeStr.match(/^(\d{2}):(\d{2}):(\d{2})$/);
+        
+        if (!timeMatch) return false;
+        
+        const hours = parseInt(timeMatch[1]);
+        const minutes = parseInt(timeMatch[2]);
+        const seconds = parseInt(timeMatch[3]);
+        
+        // 检查是否在18:00:00至23:59:59之间
+        return hours >= 18 && hours <= 23;
+    });
+    
+    // 显示筛选后的结果
+    displayAnalysisResults(after18Articles);
+    
+    // 更新成功消息，添加"显示当天所有论文"按钮
+    const buttonConfig = {
+        text: '显示当天所有论文',
+        onclick: () => showAllDayPapers(allArticles, totalCount)
+    };
+    
+    showSuccess(`筛选完成！共找到 ${after18Articles.length} 篇18:00后的补充论文（全天共${totalCount}篇）`, buttonConfig);
+}
+
+// 显示当天所有论文
+function showAllDayPapers(allArticles, totalCount) {
+    if (!allArticles || allArticles.length === 0) {
+        showError('没有论文数据可供显示');
+        return;
+    }
+    
+    // 显示所有论文
+    displayAnalysisResults(allArticles);
+    
+    // 恢复"筛选当日18:00后的补充论文"按钮
+    const buttonConfig = {
+        text: '筛选当日18:00后的补充论文',
+        onclick: () => filterAfter18Papers(allArticles, totalCount)
+    };
+    
+    showSuccess(`分析完成！共处理 ${totalCount} 篇论文`, buttonConfig);
 }

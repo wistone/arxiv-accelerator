@@ -491,7 +491,8 @@ def insert_analysis_result(
 
 
 def get_analysis_results(
-    *, date: str | dt.date, category: str, prompt_id: str, limit: Optional[int] = None, order_by: str = "arxiv_id.asc"
+    *, date: str | dt.date, category: str, prompt_id: str, limit: Optional[int] = None, order_by: str = "arxiv_id.asc",
+    time_filter: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """按“当天 + 分类 + prompt”返回分析结果。
 
@@ -530,14 +531,18 @@ def get_analysis_results(
     temp_rows: List[Dict[str, Any]] = []
     for i in range(0, len(all_category_paper_ids), chunk):
         part_ids = all_category_paper_ids[i:i + chunk]
-        part = (
+        query = (
             db.from_("papers")
-            .select("paper_id, arxiv_id, title, authors, abstract, link, author_affiliation")
+            .select("paper_id, arxiv_id, title, authors, abstract, link, author_affiliation, update_time")
             .eq("update_date", date_str)
             .in_("paper_id", part_ids)
-            .order("arxiv_id")
-            .execute().data
         )
+        
+        # 应用时间筛选（如果提供）
+        if time_filter == "after_18":
+            query = query.gte("update_time", "18:00:00").lte("update_time", "23:59:59")
+        
+        part = query.order("arxiv_id").execute().data
         temp_rows.extend(part)
     # 可能顺序已按 arxiv_id；为稳妥，统一再排一次
     # 搜索页按 arxiv_id 降序（最新编号靠前），保持一致
@@ -587,6 +592,7 @@ def get_analysis_results(
             "abstract": p.get("abstract", ""),
             "link": p.get("link", ""),
             "author_affiliation": p.get("author_affiliation", ""),
+            "update_time": p.get("update_time", ""),
         })
         if limit and len(articles) >= limit:
             break

@@ -805,7 +805,8 @@ def get_analysis_results():
             if not prompt_id:
                 return jsonify({'error': '缺少 prompt: multi-modal-llm'}), 500
             limit = 5 if selected_range == 'top5' else 10 if selected_range == 'top10' else 20 if selected_range == 'top20' else None
-            articles = db_repo.get_analysis_results(date=selected_date, category=selected_category, prompt_id=prompt_id, limit=limit)
+            time_filter = data.get('time_filter')  # 支持时间筛选参数
+            articles = db_repo.get_analysis_results(date=selected_date, category=selected_category, prompt_id=prompt_id, limit=limit, time_filter=time_filter)
             if len(articles) > 0:
                 return jsonify({
                     'success': True,
