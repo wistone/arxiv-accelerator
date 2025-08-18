@@ -135,14 +135,14 @@ def search_articles():
                 expected_linked_count = len(existing_ids)  # 已存在的论文数量
                 actual_linked_count = len(cached_articles)  # 已建立分类关联的论文数量
                 
-                if not missing_ids and expected_linked_count == actual_linked_count:
+                if not missing_ids and expected_linked_count == actual_linked_count and len(cached_articles) >= len(existing_ids):
                     # 所有数据都已存在且分类关联完整，跳过导入
                     print(f"⚡ [搜索性能] 所有数据已存在且分类关联完整({actual_linked_count}/{expected_linked_count})，跳过导入")
                     import_time = 0
                     stats = {'processed': len(existing_ids), 'total_upsert': 0}
-                    articles = cached_articles
-                    db_time = 0.0
-                    skip_db_read = True
+                    # 🔧 修复：一体化查询可能返回旧数据，强制使用标准DB查询
+                    print(f"⚠️  [搜索性能] 为确保数据完整性，使用标准DB查询而非缓存数据")
+                    skip_db_read = False
                 elif not missing_ids:
                     # 论文已存在但分类关联不完整，需要补建关联
                     print(f"🔗 [搜索性能] 论文已存在但分类关联不完整({actual_linked_count}/{expected_linked_count})，补建关联")

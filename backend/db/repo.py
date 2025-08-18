@@ -291,20 +291,87 @@ def smart_check_and_read(date: str | dt.date, category: str, arxiv_ids: List[str
         return {'existing_ids': [], 'articles': []}
 
 
+def list_papers_by_date_category_reliable(date: str | dt.date, category: str) -> List[Dict[str, Any]]:
+    """
+    可靠版本：使用分步查询确保不会丢失数据
+    1. 先获取所有该分类的paper_id（分页）
+    2. 再查询指定日期的papers（分块）
+    """
+    db = app_schema()
+    date_str = _ensure_date(date)
+    category_id = upsert_category(category)
+    
+    print(f"[repo-reliable] 开始查询 date={date_str}, category={category}")
+    
+    # 1. 获取该分类的所有paper_id（分页避免截断）
+    all_paper_ids = []
+    page_size = 1000
+    offset = 0
+    while True:
+        batch = (
+            db.from_("paper_categories")
+            .select("paper_id")
+            .eq("category_id", category_id)
+            .range(offset, offset + page_size - 1)
+            .execute()
+            .data
+        )
+        if not batch:
+            break
+        all_paper_ids.extend([r["paper_id"] for r in batch])
+        offset += page_size
+        if len(batch) < page_size:
+            break
+    
+    print(f"[repo-reliable] 该分类总paper_id数: {len(all_paper_ids)}")
+    
+    # 2. 分块查询指定日期的papers
+    papers = []
+    chunk_size = 500
+    for i in range(0, len(all_paper_ids), chunk_size):
+        chunk_ids = all_paper_ids[i:i + chunk_size]
+        chunk_papers = (
+            db.from_("papers")
+            .select("paper_id, arxiv_id, title, authors, abstract, link, author_affiliation")
+            .in_("paper_id", chunk_ids)
+            .eq("update_date", date_str)
+            .order("arxiv_id", desc=True)
+            .execute()
+            .data
+        )
+        papers.extend(chunk_papers)
+    
+    print(f"[repo-reliable] 指定日期的论文数: {len(papers)}")
+    
+    # 3. 转换为articles格式
+    articles = []
+    for idx, paper in enumerate(papers, start=1):
+        articles.append({
+            "number": idx,
+            "id": paper["arxiv_id"],
+            "title": paper["title"],
+            "authors": paper.get("authors") or "",
+            "abstract": paper.get("abstract") or "",
+            "link": paper.get("link") or "",
+            "author_affiliation": paper.get("author_affiliation") or "",
+        })
+    
+    return articles
+
 def list_papers_by_date_category(date: str | dt.date, category: str) -> List[Dict[str, Any]]:
     db = app_schema()
     date_str = _ensure_date(date)
     # 优先走一次请求的内联JOIN查询（通过外键自动关系），显著减少网络往返
     category_id = upsert_category(category)
     try:
-        # 使用range替代limit以避免Supabase的默认限制
+        # 使用range替代limit以避免Supabase的默认限制，并增加更大的范围
         joined_rows = (
             db.from_("paper_categories")
             .select("papers!inner(paper_id, arxiv_id, title, authors, abstract, link, author_affiliation)")
             .eq("category_id", category_id)
             .eq("papers.update_date", date_str)
             .order("arxiv_id", foreign_table="papers", desc=True)
-            .range(0, 4999)  # 获取前5000条记录
+            .range(0, 9999)  # 增加到10000条记录，确保不会截断
             .execute()
             .data
         )
@@ -316,45 +383,26 @@ def list_papers_by_date_category(date: str | dt.date, category: str) -> List[Dic
         # 调试日志
         try:
             print(f"[repo] fast-join rows for date={date_str}, category={category}: {len(rows)}")
+            print(f"[repo] joined_rows原始数量: {len(joined_rows)}, 过滤后的rows数量: {len(rows)}")
+            if len(joined_rows) != len(rows):
+                print(f"[repo] 注意：joined_rows和rows数量不一致，可能存在空papers字段")
+            
+            # 如果返回的数据看起来被截断了（比如正好是5000或10000），或者数量显著偏少，使用可靠版本
+            if len(rows) in [5000, 10000]:
+                print(f"[repo] 检测到可能的截断（{len(rows)}条），切换到可靠版本")
+                return list_papers_by_date_category_reliable(date, category)
+            
+            # 如果JOIN查询的结果明显少于预期（比如只有129条但实际应该有132条），也切换到可靠版本
+            if len(joined_rows) > 0 and len(rows) != len(joined_rows):
+                print(f"[repo] JOIN结果不一致（原始{len(joined_rows)}，过滤后{len(rows)}），切换到可靠版本")
+                return list_papers_by_date_category_reliable(date, category)
+                
         except Exception:
             pass
     except Exception as _join_err:
-        # 回退方案：分页取关联 + 分块查papers（较慢，但保证可用）
-        ids: List[int] = []
-        page_size = 500
-        offset = 0
-        while True:
-            q_link = (
-                db.from_("paper_categories")
-                .select("paper_id")
-                .eq("category_id", category_id)
-            )
-            batch = q_link.range(offset, offset + page_size - 1).execute().data
-            if not batch:
-                break
-            ids.extend([row["paper_id"] for row in batch])
-            offset += page_size
-            if len(batch) < page_size:
-                break
-        if not ids:
-            return []
-        rows = []
-        chunk_size = 500
-        for i in range(0, len(ids), chunk_size):
-            chunk = ids[i:i + chunk_size]
-            q_papers = (
-                db.from_("papers")
-                .select("paper_id, arxiv_id, title, authors, abstract, link, author_affiliation")
-                .in_("paper_id", chunk)
-                .eq("update_date", date_str)
-                .order("arxiv_id", desc=True)
-            )
-            part = q_papers.range(0, len(chunk) - 1).execute().data
-            rows.extend(part)
-        try:
-            print(f"[repo] fallback rows for date={date_str}, category={category}: {len(rows)}")
-        except Exception:
-            pass
+        # 回退方案：使用可靠版本
+        print(f"[repo] JOIN查询失败，使用可靠版本: {_join_err}")
+        return list_papers_by_date_category_reliable(date, category)
     # map to legacy articles structure
     articles: List[Dict[str, Any]] = []
     for idx, r in enumerate(rows, start=1):
@@ -619,7 +667,7 @@ def get_analysis_status_fast(date: str | dt.date, category: str, prompt_id: str)
             .eq("category_id", category_id)
             .eq("papers.update_date", date_str)
             .eq("analysis_results.prompt_id", prompt_id)
-            .range(0, 4999)  # 支持最多5000篇论文
+            .range(0, 9999)  # 支持最多10000篇论文
             .execute()
             .data
         )
