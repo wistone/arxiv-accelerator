@@ -71,23 +71,37 @@ function showSuccess(message, buttonConfig = null) {
     // 隐藏错误消息
     document.getElementById('error').style.display = 'none';
     
-    // 清空并重新设置成功消息内容
     const successDiv = document.getElementById('success');
-    successDiv.innerHTML = '';
     
-    // 添加文本消息
-    const messageSpan = document.createElement('span');
-    messageSpan.textContent = message;
-    successDiv.appendChild(messageSpan);
+    // 检查是否已经有批次按钮容器
+    const existingBatchContainer = successDiv.querySelector('.batch-filter-container');
     
-    // 如果有按钮配置，添加按钮
-    if (buttonConfig) {
-        const button = document.createElement('button');
-        button.textContent = buttonConfig.text;
-        button.className = 'filter-btn';
-        button.style.marginLeft = '10px';
-        button.onclick = buttonConfig.onclick;
-        successDiv.appendChild(button);
+    if (existingBatchContainer && !buttonConfig) {
+        // 如果有批次按钮且没有新的按钮配置，只更新消息文本，保持批次按钮
+        let messageSpan = successDiv.querySelector('span');
+        if (!messageSpan) {
+            messageSpan = document.createElement('span');
+            successDiv.insertBefore(messageSpan, existingBatchContainer);
+        }
+        messageSpan.textContent = message;
+    } else {
+        // 没有批次按钮，正常处理
+        successDiv.innerHTML = '';
+        
+        // 添加文本消息
+        const messageSpan = document.createElement('span');
+        messageSpan.textContent = message;
+        successDiv.appendChild(messageSpan);
+        
+        // 如果有按钮配置，添加按钮
+        if (buttonConfig) {
+            const button = document.createElement('button');
+            button.textContent = buttonConfig.text;
+            button.className = 'filter-btn';
+            button.style.marginLeft = '10px';
+            button.onclick = buttonConfig.onclick;
+            successDiv.appendChild(button);
+        }
     }
     
     successDiv.style.display = 'block';

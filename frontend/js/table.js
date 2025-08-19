@@ -3,8 +3,19 @@
  */
 
 function displayAnalysisResults(articles) {
-    // 清理所有消息
-    hideAllMessages();
+    // 清理错误消息，但保留success消息中的批次按钮
+    document.getElementById('error').style.display = 'none';
+    
+    // 调用内部显示函数
+    _displayAnalysisResultsInternal(articles);
+}
+
+function displayAnalysisResultsWithoutClearingMessages(articles) {
+    // 专门用于批次切换的函数，不清理任何消息
+    _displayAnalysisResultsInternal(articles);
+}
+
+function _displayAnalysisResultsInternal(articles) {
     
     // 保存当前分析结果
     window.AppState.currentAnalysisArticles = articles;
@@ -41,8 +52,9 @@ function displayAnalysisResults(articles) {
 }
 
 function displayAnalysisFailure(failInfo) {
-    // 清理所有消息
-    hideAllMessages();
+    // 清理错误消息，但在失败情况下可以清理success消息
+    document.getElementById('error').style.display = 'none';
+    document.getElementById('success').style.display = 'none';
     
     // 保存当前失败信息
     window.AppState.currentAnalysisArticles = [];

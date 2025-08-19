@@ -540,7 +540,7 @@ def insert_analysis_result(
 
 def get_analysis_results(
     *, date: str | dt.date, category: str, prompt_id: str, limit: Optional[int] = None, order_by: str = "arxiv_id.asc",
-    time_filter: Optional[str] = None
+    time_filter: Optional[str] = None, batch_filter: Optional[List[int]] = None
 ) -> List[Dict[str, Any]]:
     """按“当天 + 分类 + prompt”返回分析结果。
 
@@ -586,9 +586,13 @@ def get_analysis_results(
             .in_("paper_id", part_ids)
         )
         
-        # 应用时间筛选（如果提供）
+        # 应用时间筛选（如果提供）- 保留向后兼容
         if time_filter == "after_18":
             query = query.gte("update_time", "18:00:00").lte("update_time", "23:59:59")
+        
+        # 应用批次筛选（如果提供）
+        if batch_filter:
+            query = query.in_("paper_id", batch_filter)
         
         part = query.order("arxiv_id").execute().data
         temp_rows.extend(part)
@@ -633,6 +637,7 @@ def get_analysis_results(
             continue
         articles.append({
             "number": len(articles) + 1,
+            "id": p.get("arxiv_id", ""),  # 添加id字段供前端使用
             "paper_id": p.get("paper_id"),
             "analysis_result": json.dumps(row["analysis_result"], ensure_ascii=False, separators=(",", ":")),
             "title": p.get("title", ""),
@@ -645,6 +650,99 @@ def get_analysis_results(
         if limit and len(articles) >= limit:
             break
     return articles
+
+
+def get_ingest_batches(date: str | dt.date, category: str) -> Dict[str, Any]:
+    """获取指定日期和分类的ingest批次信息"""
+    from datetime import datetime, timedelta
+    
+    db = app_schema()
+    date_str = _ensure_date(date)
+    category_id = upsert_category(category)
+    
+    try:
+        # 获取该日期该分类的所有论文ingest_at信息
+        papers_with_ingest = (
+            db.from_("paper_categories")
+            .select("papers!inner(paper_id, arxiv_id, ingest_at)")
+            .eq("category_id", category_id)
+            .eq("papers.update_date", date_str)
+            .order("ingest_at", foreign_table="papers")
+            .range(0, 9999)
+            .execute()
+            .data
+        )
+        
+        # 展开papers字段
+        papers = []
+        for item in papers_with_ingest:
+            paper = item.get("papers", {})
+            if paper:
+                papers.append(paper)
+        
+        if not papers:
+            return {
+                'date': date_str,
+                'category': category,
+                'total_papers': 0,
+                'batch_count': 0,
+                'batches': []
+            }
+        
+        # 按ingest_at时间进行批次分组
+        # 设置批次间隔阈值（30分钟）
+        batch_threshold = timedelta(minutes=30)
+        
+        batches = []
+        current_batch = [papers[0]]
+        last_time = datetime.fromisoformat(papers[0]['ingest_at'].replace('Z', '+00:00').replace('+00:00', ''))
+        
+        for paper in papers[1:]:
+            current_time = datetime.fromisoformat(paper['ingest_at'].replace('Z', '+00:00').replace('+00:00', ''))
+            
+            if current_time - last_time > batch_threshold:
+                # 开始新批次
+                batches.append(current_batch)
+                current_batch = [paper]
+            else:
+                current_batch.append(paper)
+            
+            last_time = current_time
+        
+        # 添加最后一个批次
+        if current_batch:
+            batches.append(current_batch)
+        
+        # 构造返回数据
+        batch_info = []
+        for i, batch in enumerate(batches, 1):
+            batch_start = datetime.fromisoformat(batch[0]['ingest_at'].replace('Z', '+00:00').replace('+00:00', ''))
+            
+            batch_info.append({
+                'batch_id': i,
+                'batch_label': batch_start.strftime('%m-%d %H:%M'),
+                'start_time': batch_start.isoformat(),
+                'paper_count': len(batch),
+                'paper_ids': [p['paper_id'] for p in batch]
+            })
+        
+        return {
+            'date': date_str,
+            'category': category,
+            'total_papers': len(papers),
+            'batch_count': len(batches),
+            'batches': batch_info
+        }
+        
+    except Exception as e:
+        print(f"获取批次信息失败: {e}")
+        return {
+            'date': date_str,
+            'category': category,
+            'total_papers': 0,
+            'batch_count': 0,
+            'batches': []
+        }
 
 
 def get_analysis_status_fast(date: str | dt.date, category: str, prompt_id: str) -> Dict[str, int]:

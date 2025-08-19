@@ -167,6 +167,11 @@ async function loadAnalysisResultsFromDatabase(date, category, rangeType) {
                                      rangeType === 'top20' ? 20 : 999;
                 const actualCount = data.articles.length;
                 
+                // 清除之前的批次按钮
+                if (typeof clearPreviousBatchButtons !== 'undefined') {
+                    clearPreviousBatchButtons();
+                }
+                
                 // 显示分析结果
                 displayAnalysisResults(data.articles);
                 

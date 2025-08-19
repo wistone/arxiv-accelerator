@@ -805,8 +805,9 @@ def get_analysis_results():
             if not prompt_id:
                 return jsonify({'error': '缺少 prompt: multi-modal-llm'}), 500
             limit = 5 if selected_range == 'top5' else 10 if selected_range == 'top10' else 20 if selected_range == 'top20' else None
-            time_filter = data.get('time_filter')  # 支持时间筛选参数
-            articles = db_repo.get_analysis_results(date=selected_date, category=selected_category, prompt_id=prompt_id, limit=limit, time_filter=time_filter)
+            time_filter = data.get('time_filter')  # 支持时间筛选参数（向后兼容）
+            batch_filter = data.get('batch_filter')  # 支持批次筛选参数
+            articles = db_repo.get_analysis_results(date=selected_date, category=selected_category, prompt_id=prompt_id, limit=limit, time_filter=time_filter, batch_filter=batch_filter)
             if len(articles) > 0:
                 return jsonify({
                     'success': True,
@@ -839,6 +840,26 @@ def get_available_dates():
         
     except Exception as e:
         return jsonify({'error': f'获取日期列表失败: {str(e)}'}), 500
+
+@app.route('/api/get_ingest_batches', methods=['POST'])
+def get_ingest_batches():
+    """获取指定日期和分类的ingest批次信息"""
+    try:
+        data = request.get_json()
+        selected_date = data.get('date')
+        selected_category = data.get('category', 'cs.CV')
+        
+        if not selected_date:
+            return jsonify({'error': '请选择日期'}), 400
+        
+        batch_info = db_repo.get_ingest_batches(selected_date, selected_category)
+        return jsonify({
+            'success': True,
+            'batch_info': batch_info
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'获取批次信息失败: {str(e)}'}), 500
 
 @app.route('/api/clear_cache', methods=['POST'])
 def clear_cache():

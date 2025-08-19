@@ -21,6 +21,9 @@ async function analyzeArticles() {
         showError('请先搜索文章列表');
         return;
     }
+    
+    // 清除之前的批次按钮（开始新的分析session）
+    clearPreviousBatchButtons();
 
     const selectedDate = document.getElementById('dateSelect').value;
     const selectedCategory = document.getElementById('categorySelect').value;
@@ -268,6 +271,9 @@ async function loadAnalysisResults(rangeTypeToLoad = 'full') {
     const selectedDate = document.getElementById('dateSelect').value;
     const selectedCategory = document.getElementById('categorySelect').value;
     
+    // 清除之前的批次按钮（加载新的分析结果）
+    clearPreviousBatchButtons();
+    
     try {
         setButtonLoading('showExistingBtn', true, '加载中...');
         const overlay = document.getElementById('overlayLoading');
@@ -292,15 +298,8 @@ async function loadAnalysisResults(rangeTypeToLoad = 'full') {
                 displayAnalysisFailure(data.fail_info);
                 showError(`分析失败：${data.fail_info.total_papers} 篇论文的AI分析都失败了`);
             } else {
-                displayAnalysisResults(data.articles);
-                
-                // 创建筛选按钮配置
-                const buttonConfig = {
-                    text: '筛选当日18:00后的补充论文',
-                    onclick: () => filterAfter18Papers(data.articles, data.total)
-                };
-                
-                showSuccess(`分析完成！共处理 ${data.total} 篇论文`, buttonConfig);
+                // 并行加载批次信息和显示分析结果
+                await showAnalysisResultsWithBatchesOptimized(data.articles, data.total, selectedDate, selectedCategory);
             }
             
             // 更新URL状态 - 修正limit参数
@@ -334,58 +333,382 @@ function retryAnalysis() {
     showAnalysisOptions({articles: window.AppState.currentArticles});
 }
 
-// 筛选18:00后的补充论文
-function filterAfter18Papers(allArticles, totalCount) {
-    if (!allArticles || allArticles.length === 0) {
-        showError('没有论文数据可供筛选');
-        return;
+// 优化版本：并行加载分析结果和批次信息
+async function showAnalysisResultsWithBatchesOptimized(articles, totalCount, date, category) {
+    try {
+        // 启动批次信息获取和批次验证的并行操作
+        const batchInfoPromise = fetch('/api/get_ingest_batches', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                date: date,
+                category: category
+            })
+        });
+
+        // 先显示分析结果，不等待批次信息
+        displayAnalysisResults(articles);
+
+        // 等待批次信息
+        const batchResponse = await batchInfoPromise;
+        
+        if (batchResponse.ok) {
+            const batchData = await batchResponse.json();
+            const batchInfo = batchData.batch_info;
+            
+            if (batchInfo && batchInfo.batches && batchInfo.batches.length > 1) {
+                // 有多个批次，快速检查并创建按钮
+                await createBatchFilterButtonsOptimized(articles, totalCount, batchInfo, date, category);
+            } else {
+                // 只有一个批次或无批次信息，显示普通成功消息
+                showSuccess(`分析完成！共处理 ${totalCount} 篇论文`);
+            }
+        } else {
+            // 获取批次信息失败，显示普通成功消息
+            showSuccess(`分析完成！共处理 ${totalCount} 篇论文`);
+        }
+    } catch (error) {
+        console.error('优化版批次信息获取失败:', error);
+        showSuccess(`分析完成！共处理 ${totalCount} 篇论文`);
     }
-    
-    // 筛选出update_time在18:00:00至23:59:59之间的论文
-    const after18Articles = allArticles.filter(article => {
-        if (!article.update_time) return false;
-        
-        // 解析时间字符串 (格式应该是 HH:MM:SS)
-        const timeStr = article.update_time;
-        const timeMatch = timeStr.match(/^(\d{2}):(\d{2}):(\d{2})$/);
-        
-        if (!timeMatch) return false;
-        
-        const hours = parseInt(timeMatch[1]);
-        const minutes = parseInt(timeMatch[2]);
-        const seconds = parseInt(timeMatch[3]);
-        
-        // 检查是否在18:00:00至23:59:59之间
-        return hours >= 18 && hours <= 23;
-    });
-    
-    // 显示筛选后的结果
-    displayAnalysisResults(after18Articles);
-    
-    // 更新成功消息，添加"显示当天所有论文"按钮
-    const buttonConfig = {
-        text: '显示当天所有论文',
-        onclick: () => showAllDayPapers(allArticles, totalCount)
-    };
-    
-    showSuccess(`筛选完成！共找到 ${after18Articles.length} 篇18:00后的补充论文（全天共${totalCount}篇）`, buttonConfig);
 }
 
-// 显示当天所有论文
-function showAllDayPapers(allArticles, totalCount) {
-    if (!allArticles || allArticles.length === 0) {
-        showError('没有论文数据可供显示');
+// 显示分析结果并获取批次信息
+async function showAnalysisResultsWithBatches(articles, totalCount, date, category) {
+    try {
+        // 获取批次信息
+        const response = await fetch('/api/get_ingest_batches', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                date: date,
+                category: category
+            })
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            const batchInfo = data.batch_info;
+            
+            if (batchInfo && batchInfo.batches && batchInfo.batches.length > 1) {
+                // 有多个批次，显示批次筛选按钮
+                createBatchFilterButtons(articles, totalCount, batchInfo);
+            } else {
+                // 只有一个批次或无批次信息，显示普通成功消息
+                showSuccess(`分析完成！共处理 ${totalCount} 篇论文`);
+            }
+        } else {
+            // 获取批次信息失败，显示普通成功消息
+            showSuccess(`分析完成！共处理 ${totalCount} 篇论文`);
+        }
+    } catch (error) {
+        console.error('获取批次信息失败:', error);
+        showSuccess(`分析完成！共处理 ${totalCount} 篇论文`);
+    }
+}
+
+// 优化版本：快速批次按钮创建，使用并行请求
+async function createBatchFilterButtonsOptimized(allArticles, totalCount, batchInfo, date, category) {
+    // 存储全局变量供按钮回调使用
+    window.AppState.currentBatchInfo = batchInfo;
+    window.AppState.currentAllArticles = allArticles;
+    
+    // 并行检查所有批次是否有分析结果
+    const batchCheckPromises = batchInfo.batches.map(async (batch) => {
+        try {
+            const response = await fetch('/api/get_analysis_results', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    date: date,
+                    category: category,
+                    range_type: 'full',
+                    batch_filter: batch.paper_ids
+                })
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                if (data.articles && data.articles.length > 0) {
+                    return {
+                        ...batch,
+                        analysis_count: data.articles.length
+                    };
+                }
+            }
+            return null; // 没有分析结果的批次返回null
+        } catch (error) {
+            console.error(`检查批次${batch.batch_id}分析结果失败:`, error);
+            return null;
+        }
+    });
+    
+    // 等待所有批次检查完成
+    const batchResults = await Promise.all(batchCheckPromises);
+    const batchesWithResults = batchResults.filter(batch => batch !== null);
+    
+    // 如果没有批次有分析结果，或只有一个批次，不显示批次按钮
+    if (batchesWithResults.length <= 1) {
+        showSuccess(`分析完成！共处理 ${totalCount} 篇论文`);
         return;
     }
     
-    // 显示所有论文
-    displayAnalysisResults(allArticles);
-    
-    // 恢复"筛选当日18:00后的补充论文"按钮
-    const buttonConfig = {
-        text: '筛选当日18:00后的补充论文',
-        onclick: () => filterAfter18Papers(allArticles, totalCount)
+    // 更新batchInfo，只保留有结果的批次
+    const filteredBatchInfo = {
+        ...batchInfo,
+        batches: batchesWithResults,
+        batch_count: batchesWithResults.length
     };
+    window.AppState.currentBatchInfo = filteredBatchInfo;
     
-    showSuccess(`分析完成！共处理 ${totalCount} 篇论文`, buttonConfig);
+    // 创建按钮容器
+    const buttonContainer = document.createElement('div');
+    buttonContainer.className = 'batch-filter-container';
+    buttonContainer.style.marginTop = '10px';
+    
+    // 添加"显示全部"按钮
+    const showAllBtn = document.createElement('button');
+    showAllBtn.textContent = '显示全部';
+    showAllBtn.className = 'batch-filter-btn active';
+    showAllBtn.onclick = () => showBatchArticles('all', allArticles, totalCount, filteredBatchInfo);
+    buttonContainer.appendChild(showAllBtn);
+    
+    // 只添加有分析结果的批次按钮
+    batchesWithResults.forEach(batch => {
+        const batchBtn = document.createElement('button');
+        batchBtn.textContent = `批次${batch.batch_id} (${batch.batch_label})`;
+        batchBtn.className = 'batch-filter-btn';
+        batchBtn.onclick = () => showBatchArticles(batch.batch_id, allArticles, totalCount, filteredBatchInfo);
+        buttonContainer.appendChild(batchBtn);
+    });
+    
+    // 创建带按钮的成功消息
+    const successDiv = document.getElementById('success');
+    successDiv.innerHTML = '';
+    
+    const messageSpan = document.createElement('span');
+    messageSpan.textContent = `分析完成！共处理 ${totalCount} 篇论文`;
+    successDiv.appendChild(messageSpan);
+    successDiv.appendChild(buttonContainer);
+    successDiv.style.display = 'block';
+}
+
+// 创建批次筛选按钮
+async function createBatchFilterButtons(allArticles, totalCount, batchInfo) {
+    // 存储全局变量供按钮回调使用
+    window.AppState.currentBatchInfo = batchInfo;
+    window.AppState.currentAllArticles = allArticles;
+    
+    // 检查每个批次是否有分析结果
+    const selectedDate = document.getElementById('dateSelect').value;
+    const selectedCategory = document.getElementById('categorySelect').value;
+    const batchesWithResults = [];
+    
+    for (const batch of batchInfo.batches) {
+        try {
+            const response = await fetch('/api/get_analysis_results', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    date: selectedDate,
+                    category: selectedCategory,
+                    range_type: 'full',
+                    batch_filter: batch.paper_ids
+                })
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                if (data.articles && data.articles.length > 0) {
+                    // 只保留有分析结果的批次
+                    batchesWithResults.push({
+                        ...batch,
+                        analysis_count: data.articles.length
+                    });
+                }
+            }
+        } catch (error) {
+            console.error(`检查批次${batch.batch_id}分析结果失败:`, error);
+        }
+    }
+    
+    // 如果没有批次有分析结果，或只有一个批次，不显示批次按钮
+    if (batchesWithResults.length <= 1) {
+        const successDiv = document.getElementById('success');
+        successDiv.innerHTML = '';
+        const messageSpan = document.createElement('span');
+        messageSpan.textContent = `分析完成！共处理 ${totalCount} 篇论文`;
+        successDiv.appendChild(messageSpan);
+        successDiv.style.display = 'block';
+        return;
+    }
+    
+    // 更新batchInfo，只保留有结果的批次
+    const filteredBatchInfo = {
+        ...batchInfo,
+        batches: batchesWithResults,
+        batch_count: batchesWithResults.length
+    };
+    window.AppState.currentBatchInfo = filteredBatchInfo;
+    
+    // 创建按钮容器
+    const buttonContainer = document.createElement('div');
+    buttonContainer.className = 'batch-filter-container';
+    buttonContainer.style.marginTop = '10px';
+    
+    // 添加"显示全部"按钮
+    const showAllBtn = document.createElement('button');
+    showAllBtn.textContent = '显示全部';
+    showAllBtn.className = 'batch-filter-btn active';
+    showAllBtn.onclick = () => showBatchArticles('all', allArticles, totalCount, filteredBatchInfo);
+    buttonContainer.appendChild(showAllBtn);
+    
+    // 只添加有分析结果的批次按钮
+    batchesWithResults.forEach(batch => {
+        const batchBtn = document.createElement('button');
+        batchBtn.textContent = `批次${batch.batch_id} (${batch.batch_label})`;
+        batchBtn.className = 'batch-filter-btn';
+        batchBtn.onclick = () => showBatchArticles(batch.batch_id, allArticles, totalCount, filteredBatchInfo);
+        buttonContainer.appendChild(batchBtn);
+    });
+    
+    // 创建带按钮的成功消息
+    const successDiv = document.getElementById('success');
+    successDiv.innerHTML = '';
+    
+    const messageSpan = document.createElement('span');
+    messageSpan.textContent = `分析完成！共处理 ${totalCount} 篇论文`;
+    successDiv.appendChild(messageSpan);
+    successDiv.appendChild(buttonContainer);
+    successDiv.style.display = 'block';
+}
+
+// 显示指定批次的论文
+async function showBatchArticles(batchId, allArticles, totalCount, batchInfo) {
+    if (batchId === 'all') {
+        // 显示加载状态
+        showBatchLoadingIndicator('all', true);
+        
+        // 显示所有文章（不清理消息）
+        displayAnalysisResultsWithoutClearingMessages(allArticles);
+        updateBatchButtonStates('all');
+        
+        // 保持按钮显示，只更新消息文本
+        const successDiv = document.getElementById('success');
+        const messageSpan = successDiv.querySelector('span');
+        if (messageSpan) {
+            messageSpan.textContent = `已加载全部 ${totalCount} 篇论文`;
+        }
+        
+        // 恢复按钮状态
+        showBatchLoadingIndicator('all', false);
+        return;
+    }
+    
+    // 找到指定批次
+    const batch = batchInfo.batches.find(b => b.batch_id === batchId);
+    if (!batch) {
+        showError('找不到指定批次');
+        return;
+    }
+    
+    try {
+        // 显示加载状态
+        showBatchLoadingIndicator(batchId, true);
+        
+        // 请求该批次的分析结果
+        const selectedDate = document.getElementById('dateSelect').value;
+        const selectedCategory = document.getElementById('categorySelect').value;
+        
+        const response = await fetch('/api/get_analysis_results', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                date: selectedDate,
+                category: selectedCategory,
+                range_type: 'full',
+                batch_filter: batch.paper_ids
+            })
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            displayAnalysisResultsWithoutClearingMessages(data.articles);
+            updateBatchButtonStates(batchId);
+            
+            // 保持按钮显示，只更新消息文本
+            const successDiv = document.getElementById('success');
+            const messageSpan = successDiv.querySelector('span');
+            if (messageSpan) {
+                messageSpan.textContent = `已加载批次${batchId}，共${data.articles.length}篇论文（${batch.batch_label}）`;
+            }
+        } else {
+            showError('获取批次论文失败');
+        }
+    } catch (error) {
+        console.error('获取批次论文失败:', error);
+        showError('获取批次论文时出现网络错误');
+    } finally {
+        // 恢复按钮状态
+        showBatchLoadingIndicator(batchId, false);
+    }
+}
+
+// 更新批次按钮状态
+function updateBatchButtonStates(activeBatchId) {
+    const buttons = document.querySelectorAll('.batch-filter-btn');
+    buttons.forEach(btn => {
+        btn.classList.remove('active');
+        if ((activeBatchId === 'all' && btn.textContent === '显示全部') ||
+            (activeBatchId !== 'all' && btn.textContent.includes(`批次${activeBatchId}`))) {
+            btn.classList.add('active');
+        }
+    });
+}
+
+// 清除之前的批次按钮
+function clearPreviousBatchButtons() {
+    const successDiv = document.getElementById('success');
+    if (successDiv) {
+        const batchContainer = successDiv.querySelector('.batch-filter-container');
+        if (batchContainer) {
+            batchContainer.remove();
+            console.log('🧹 已清除之前的批次按钮');
+        }
+        
+        // 清除批次相关的全局状态
+        if (window.AppState) {
+            delete window.AppState.currentBatchInfo;
+            delete window.AppState.currentAllArticles;
+        }
+    }
+}
+
+// 添加加载状态提示
+function showBatchLoadingIndicator(batchId, isLoading = true) {
+    const buttons = document.querySelectorAll('.batch-filter-btn');
+    buttons.forEach(btn => {
+        if ((batchId === 'all' && btn.textContent === '显示全部') ||
+            (batchId !== 'all' && btn.textContent.includes(`批次${batchId}`))) {
+            if (isLoading) {
+                btn.style.opacity = '0.6';
+                btn.style.cursor = 'wait';
+                btn.disabled = true;
+            } else {
+                btn.style.opacity = '1';
+                btn.style.cursor = 'pointer';
+                btn.disabled = false;
+            }
+        }
+    });
 }

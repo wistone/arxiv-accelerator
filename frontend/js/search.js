@@ -30,6 +30,13 @@ async function searchArticles() {
         if (response.ok) {
             window.AppState.currentArticles = data.articles;
             window.AppState.hasSearched = true;
+            
+            // 清除之前的批次按钮（如果存在）
+            clearPreviousBatchButtons();
+            
+            // 清除分析相关状态
+            window.AppState.hasAnalyzed = false;
+            
             displayArticles(data.articles);
             updateStats(data.articles);
             showSuccess(`成功加载 ${selectedDate} 的文章数据，共 ${data.total} 篇文章`);
