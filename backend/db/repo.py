@@ -652,6 +652,23 @@ def get_analysis_results(
     return articles
 
 
+def _parse_ingest_time(timestamp_str: str) -> datetime:
+    """解析ingest_at时间戳，处理超过6位精度的微秒"""
+    from datetime import datetime
+    
+    # 移除时区标识
+    clean_ts = timestamp_str.replace('Z', '+00:00').replace('+00:00', '')
+    
+    # 检查是否包含微秒
+    if '.' in clean_ts:
+        # 分离日期时间和微秒部分
+        dt_part, microsec_part = clean_ts.split('.')
+        # 截断微秒到6位（Python支持的最大精度）
+        microsec_part = microsec_part[:6].ljust(6, '0')
+        clean_ts = f"{dt_part}.{microsec_part}"
+    
+    return datetime.fromisoformat(clean_ts)
+
 def get_ingest_batches(date: str | dt.date, category: str) -> Dict[str, Any]:
     """获取指定日期和分类的ingest批次信息"""
     from datetime import datetime, timedelta
@@ -690,33 +707,35 @@ def get_ingest_batches(date: str | dt.date, category: str) -> Dict[str, Any]:
             }
         
         # 按ingest_at时间进行批次分组
-        # 设置批次间隔阈值（30分钟）
-        batch_threshold = timedelta(minutes=30)
+        # 按日期+小时分组，同一小时内导入的论文归为一批
+        from collections import defaultdict
         
+        batch_groups = defaultdict(list)
+        
+        for paper in papers:
+            try:
+                parsed_time = _parse_ingest_time(paper['ingest_at'])
+                # 按日期+小时作为分组键
+                group_key = parsed_time.strftime('%Y-%m-%d %H')
+                batch_groups[group_key].append((paper, parsed_time))
+            except Exception as e:
+                print(f"⚠️  无法解析时间戳 {paper['ingest_at']}: {e}")
+                # 使用默认分组
+                batch_groups['unknown'].append((paper, datetime.now()))
+        
+        # 将分组转换为批次列表，并按时间排序
         batches = []
-        current_batch = [papers[0]]
-        last_time = datetime.fromisoformat(papers[0]['ingest_at'].replace('Z', '+00:00').replace('+00:00', ''))
-        
-        for paper in papers[1:]:
-            current_time = datetime.fromisoformat(paper['ingest_at'].replace('Z', '+00:00').replace('+00:00', ''))
-            
-            if current_time - last_time > batch_threshold:
-                # 开始新批次
-                batches.append(current_batch)
-                current_batch = [paper]
-            else:
-                current_batch.append(paper)
-            
-            last_time = current_time
-        
-        # 添加最后一个批次
-        if current_batch:
-            batches.append(current_batch)
+        for group_key in sorted(batch_groups.keys()):
+            # 按时间排序组内的论文
+            group_papers = sorted(batch_groups[group_key], key=lambda x: x[1])
+            batch_papers = [paper for paper, _ in group_papers]
+            if batch_papers:
+                batches.append(batch_papers)
         
         # 构造返回数据
         batch_info = []
         for i, batch in enumerate(batches, 1):
-            batch_start = datetime.fromisoformat(batch[0]['ingest_at'].replace('Z', '+00:00').replace('+00:00', ''))
+            batch_start = _parse_ingest_time(batch[0]['ingest_at'])
             
             batch_info.append({
                 'batch_id': i,
