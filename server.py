@@ -28,8 +28,9 @@ from backend.db import repo as db_repo
 # 向后兼容的别名
 import_arxiv_papers_to_db = import_arxiv_papers
 
-# 📦 简单的内存缓存（生产环境可用Redis）
-_search_cache = {}
+# 📦 智能内存缓存 - 使用限制大小的缓存
+from backend.utils.memory_manager import LimitedCache, memory_manager, monitor_memory
+_search_cache = LimitedCache(max_size=100)  # 最多缓存100个搜索结果
 _cache_expiry = {}
 CACHE_TTL = 300  # 5分钟缓存
 
@@ -71,6 +72,7 @@ def health_check():
     })
 
 @app.route('/api/search_articles', methods=['POST'])
+@monitor_memory
 def search_articles():
     import time
     
@@ -177,24 +179,24 @@ def search_articles():
         # 🚀 缓存策略：检查缓存
         cache_key = f"{selected_date}_{selected_category}"
         
-        if cache_key in _search_cache and cache_key in _cache_expiry:
-            if current_time < _cache_expiry[cache_key]:
-                print(f"⚡ [搜索性能] 缓存命中，跳过DB查询 | key={cache_key}")
-                cached_data = _search_cache[cache_key]
-                return jsonify({
-                    'success': True,
-                    'articles': cached_data['articles'],
-                    'total': cached_data['total'],
-                    'date': selected_date,
-                    'category': selected_category,
-                    'performance': {
-                        'total_time': round(time.time() - total_start, 2),
-                        'import_time': import_time,
-                        'db_read_time': 0.0,  # 缓存命中
-                        'cache_hit': True
-                    },
-                    'debug': cached_data.get('debug')
-                })
+        # 检查LimitedCache和时间过期
+        cached_data = _search_cache.get(cache_key)
+        if cached_data and cache_key in _cache_expiry and current_time < _cache_expiry[cache_key]:
+            print(f"⚡ [搜索性能] 缓存命中，跳过DB查询 | key={cache_key}")
+            return jsonify({
+                'success': True,
+                'articles': cached_data['articles'],
+                'total': cached_data['total'],
+                'date': selected_date,
+                'category': selected_category,
+                'performance': {
+                    'total_time': round(time.time() - total_start, 2),
+                    'import_time': import_time,
+                    'db_read_time': 0.0,  # 缓存命中
+                    'cache_hit': True
+                },
+                'debug': cached_data.get('debug')
+            })
         
         # 缓存未命中，查询数据库（除非已经有一体化查询的结果）
         try:
@@ -258,7 +260,7 @@ def search_articles():
             'total': len(articles),
             'debug': debug_log if 'debug_log' in locals() else None
         }
-        _search_cache[cache_key] = cache_data
+        _search_cache.put(cache_key, cache_data)
         _cache_expiry[cache_key] = current_time + CACHE_TTL
         print(f"📦 [搜索性能] 缓存已更新 | key={cache_key} ttl={CACHE_TTL}s")
 
@@ -614,10 +616,40 @@ def run_db_analysis_task(task_id, pending_papers, selected_date, selected_catego
             analysis_progress[task_id]['status'] = 'error'
             analysis_progress[task_id]['error'] = str(e)
 
+def cleanup_old_progress():
+    """清理旧的分析进度，避免内存泄露"""
+    global analysis_progress
+    current_time = time.time()
+    cutoff_time = current_time - 7200  # 2小时前
+    
+    with analysis_lock:
+        items_to_remove = []
+        for task_id, progress in analysis_progress.items():
+            start_time = progress.get('start_time', 0)
+            status = progress.get('status', 'unknown')
+            
+            # 清理条件：超过2小时的已完成/错误任务，或超过6小时的任何任务
+            should_remove = (
+                (status in ['completed', 'error'] and start_time < cutoff_time) or
+                (start_time < current_time - 21600)  # 6小时
+            )
+            
+            if should_remove:
+                items_to_remove.append(task_id)
+        
+        for task_id in items_to_remove:
+            del analysis_progress[task_id]
+            
+        if items_to_remove:
+            print(f"🧹 [内存清理] 清理了 {len(items_to_remove)} 个旧的分析进度")
+
 def run_concurrent_analysis_task(task_id, pending_papers, selected_date, selected_category, prompt_id, workers=5):
     """运行并发分析任务"""
     import sys
     try:
+        # 在开始前清理旧进度
+        cleanup_old_progress()
+        
         # 初始化进度跟踪
         with analysis_lock:
             analysis_progress[task_id] = {

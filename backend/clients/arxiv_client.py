@@ -14,7 +14,7 @@ from backend.utils.pdf_parser import extract_arxiv_id_from_url
 
 def download_arxiv_pdf(arxiv_url: str) -> bytes:
     """
-    从 arXiv URL 下载 PDF 文件（高度优化性能）
+    从 arXiv URL 下载 PDF 文件（内存优化版本）
     
     Args:
         arxiv_url: arXiv 论文链接
@@ -25,6 +25,8 @@ def download_arxiv_pdf(arxiv_url: str) -> bytes:
     Raises:
         Exception: 下载失败时抛出异常
     """
+    from backend.utils.memory_manager import StreamBuffer, monitor_memory
+    
     arxiv_id = extract_arxiv_id_from_url(arxiv_url)
     pdf_url = f"https://arxiv.org/pdf/{arxiv_id}"
     
@@ -43,33 +45,50 @@ def download_arxiv_pdf(arxiv_url: str) -> bytes:
     with requests.Session() as session:
         session.headers.update(headers)
         
-        # 1. 先HEAD请求检查文件大小，用于日志记录
+        # 1. 先HEAD请求检查文件大小，用于内存管理决策
+        content_length = None
         try:
             head_response = session.head(pdf_url, timeout=5)
             content_length = head_response.headers.get('content-length')
             if content_length:
                 size_mb = int(content_length) / (1024 * 1024)
                 print(f"[PDF下载] 预检文件大小: {size_mb:.1f}MB")
+                
+                # 大文件预警
+                if size_mb > 20:
+                    print(f"⚠️ [PDF下载] 文件过大({size_mb:.1f}MB)，可能导致内存不足")
+                    
         except Exception as e:
             print(f"[PDF下载] ⚠️  预检失败，继续下载: {e}")
         
-        # 2. 流式下载，设置较短超时
-        response = session.get(pdf_url, timeout=10, stream=True)  # 进一步缩短超时
+        # 2. 使用智能缓冲区下载
+        buffer = StreamBuffer(max_size=15 * 1024 * 1024)  # 15MB内存限制
+        
+        response = session.get(pdf_url, timeout=15, stream=True)  
         response.raise_for_status()
         
-        # 3. 分块下载（无大小限制）
-        pdf_content = bytearray()
-        
-        for chunk in response.iter_content(chunk_size=8192):  # 8KB块
+        # 3. 内存友好的分块下载
+        total_size = 0
+        for chunk in response.iter_content(chunk_size=32768):  # 32KB块，减少内存碎片
             if chunk:
-                pdf_content.extend(chunk)
-    
+                buffer.write(chunk)
+                total_size += len(chunk)
+                
+                # 内存压力检查
+                if total_size > 20 * 1024 * 1024:  # 超过20MB时检查内存
+                    from backend.utils.memory_manager import memory_manager
+                    pressure = memory_manager.check_memory_pressure()
+                    if pressure == 'critical':
+                        raise Exception(f"内存压力过高，终止下载。已下载: {total_size/1024/1024:.1f}MB")
+        
+        pdf_content = buffer.get_content()
+        
         end_time = time.time()
         size_mb = len(pdf_content) / (1024 * 1024)
         speed_mbps = size_mb / (end_time - start_time) if (end_time - start_time) > 0 else 0
         print(f"[PDF下载] 完成，大小: {size_mb:.1f}MB，耗时: {end_time - start_time:.2f}s (速度: {speed_mbps:.1f}MB/s)")
         
-        return bytes(pdf_content)
+        return pdf_content
 
 
 def get_paper_metadata(arxiv_id: str) -> dict:

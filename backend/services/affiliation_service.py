@@ -110,8 +110,9 @@ def parse_affiliations_with_ai(first_page_text: str) -> List[str]:
         raise Exception(f"AI模型解析失败: {e}")
 
 
-# 添加简单的内存缓存
-_AFFILIATION_CACHE = {}
+# 使用限制大小的缓存替代无限增长的字典
+from backend.utils.memory_manager import LimitedCache
+_AFFILIATION_CACHE = LimitedCache(max_size=200)  # 最多缓存200个机构结果
 
 
 def clear_affiliation_cache():
@@ -145,10 +146,11 @@ def get_author_affiliations(
     print(f"[机构获取] 开始处理: {arxiv_url}")
     
     # 检查缓存
-    if use_cache and arxiv_url in _AFFILIATION_CACHE:
-        cached_result = _AFFILIATION_CACHE[arxiv_url]
-        print(f"[机构获取] 🚀 使用缓存结果，机构数: {len(cached_result)}")
-        return cached_result
+    if use_cache:
+        cached_result = _AFFILIATION_CACHE.get(arxiv_url)
+        if cached_result is not None:
+            print(f"[机构获取] 🚀 使用缓存结果，机构数: {len(cached_result)}")
+            return cached_result
     
     try:
         # 调用进度回调
@@ -193,7 +195,7 @@ def get_author_affiliations(
         
         # 缓存结果
         if use_cache:
-            _AFFILIATION_CACHE[arxiv_url] = unique_affiliations
+            _AFFILIATION_CACHE.put(arxiv_url, unique_affiliations)
             print(f"[机构获取] 💾 结果已缓存")
         
         total_time = time.time() - total_start
@@ -212,7 +214,7 @@ def get_author_affiliations(
             should_cache_failure = True
             
         if use_cache and should_cache_failure:
-            _AFFILIATION_CACHE[arxiv_url] = []
+            _AFFILIATION_CACHE.put(arxiv_url, [])
             print(f"[机构获取] 💾 失败结果已缓存（临时性错误）")
         else:
             print(f"[机构获取] 🚫 失败结果未缓存（允许重试）")

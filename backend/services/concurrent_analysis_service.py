@@ -58,15 +58,16 @@ class ConcurrentAnalysisService:
         success_count = 0
         error_count = 0
         
-        # 初始化进度
+        # 初始化进度 - 内存优化版本
         with self.progress_lock:
             progress_tracker[task_id].update({
                 'total': total_papers,
                 'current': 0,
                 'status': 'processing',
                 'concurrent_workers': self.max_workers,
-                'completed_papers': [],
-                'processing_papers': []
+                'completed_count': 0,  # 只记录数量，不存储完整对象
+                'processing_papers': [],
+                'last_10_results': []  # 只保留最近10个结果用于调试
             })
         
         print(f"🚀 [并发分析] 启动 {self.max_workers} 路并发分析，总计 {total_papers} 篇论文")
@@ -200,7 +201,7 @@ class ConcurrentAnalysisService:
                     else:
                         error_count += 1
                     
-                    # 更新进度
+                    # 更新进度 - 内存优化版本
                     with self.progress_lock:
                         progress_tracker[task_id].update({
                             'current': completed_count,
@@ -214,8 +215,16 @@ class ConcurrentAnalysisService:
                             }
                         })
                         
-                        # 添加到已完成列表
-                        progress_tracker[task_id]['completed_papers'].append(result)
+                        # 只保留最近10个结果，防止内存累积
+                        last_10 = progress_tracker[task_id]['last_10_results']
+                        last_10.append({
+                            'paper_id': result['paper_id'],
+                            'title': paper.get('title', '')[:30],
+                            'success': result['success'],
+                            'elapsed_time': result['elapsed_time']
+                        })
+                        if len(last_10) > 10:
+                            last_10.pop(0)  # 移除最旧的结果
                     
                     # 调用进度更新回调
                     if update_progress_callback:
