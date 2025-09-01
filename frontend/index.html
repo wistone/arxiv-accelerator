@@ -24,14 +24,16 @@
             </div>
         </div>
 
+        <!-- 日期分类筛选区域 -->
         <div class="controls">
+            <h2 class="section-title">📅 根据日期/分类筛选</h2>
             <div class="control-group">
                 <div class="control-item">
-                    <label for="dateSelect">📅 选择日期</label>
+                    <label for="dateSelect">选择日期</label>
                     <input type="date" id="dateSelect">
                 </div>
                 <div class="control-item">
-                    <label for="categorySelect">🏷️ 板块筛选</label>
+                    <label for="categorySelect">板块筛选</label>
                     <select id="categorySelect">
                         <option value="cs.CV">cs.CV - 计算机视觉</option>
                         <option value="cs.LG">cs.LG - 机器学习</option>
@@ -45,6 +47,23 @@
                 </button>
                 <button class="btn btn-primary" id="analyzeBtn" onclick="analyzeArticlesImproved()" disabled>
                     📊 分析
+                </button>
+            </div>
+        </div>
+
+        <!-- 智能搜索区域 -->
+        <div class="smart-search-section">
+            <h2 class="section-title">🔍 智能搜索</h2>
+            <div class="smart-search-input-container">
+                <textarea id="smartSearchInput" class="smart-search-textarea" 
+                          placeholder="输入包含arxiv_id的文本&#10;&#10;例如：&#10;[1] arXiv:2508.21824 [pdf, html, other]&#10;DriveQA: Passing the Driving Knowledge Test&#10;Maolin Wei, Wanzhou Liu, Eshed Ohn-Bar&#10;..."></textarea>
+            </div>
+            <div class="button-group">
+                <button class="btn btn-primary" onclick="startSmartSearch()">
+                    🔍 开始搜索
+                </button>
+                <button class="btn btn-secondary" id="shareSmartSearchBtn" onclick="shareSmartSearch()" style="display: none;">
+                    🔗 分享结果
                 </button>
             </div>
         </div>
@@ -153,6 +172,7 @@
     <script src="js/table.js"></script>
     <script src="js/layout.js"></script>
     <script src="js/url.js"></script>
+    <script src="js/smart-search.js"></script>
     <script src="js/main.js"></script>
 </body>
 </html>

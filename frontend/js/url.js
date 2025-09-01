@@ -12,18 +12,23 @@ function parseUrlParams() {
         action: urlParams.get('action'),
         date: urlParams.get('date'),
         category: urlParams.get('category'),
-        limit: urlParams.get('limit')
+        limit: urlParams.get('limit'),
+        // 智能搜索参数
+        content: urlParams.get('content'),
+        filter: urlParams.get('filter')
     };
 }
 
 /**
  * 更新URL状态，不刷新页面
- * @param {string} action - 动作类型: 'search' 或 'analysis'
+ * @param {string} action - 动作类型: 'search', 'analysis', 或 'smart_search'
  * @param {string} date - 日期
  * @param {string} category - 分类
  * @param {string} limit - 分析限制 (可选): 'top5', 'top10', 'top20', 'all'
+ * @param {string} content - 智能搜索内容 (可选)
+ * @param {string} filter - 日期筛选状态 (可选)
  */
-function updateUrlState(action, date, category, limit = null) {
+function updateUrlState(action, date = null, category = null, limit = null, content = null, filter = null) {
     const params = new URLSearchParams();
     
     if (action) params.set('action', action);
@@ -31,12 +36,24 @@ function updateUrlState(action, date, category, limit = null) {
     if (category) params.set('category', category);
     if (limit) params.set('limit', limit);
     
+    // 智能搜索参数
+    if (content) {
+        // Base64编码内容以避免URL特殊字符问题
+        const encodedContent = btoa(unescape(encodeURIComponent(content)));
+        params.set('content', encodedContent);
+    }
+    if (filter) params.set('filter', filter);
+    
     const newUrl = `${window.location.pathname}?${params.toString()}`;
     
     // 使用pushState更新URL，不刷新页面
-    window.history.pushState({ action, date, category, limit }, '', newUrl);
+    const state = { action, date, category, limit, content, filter };
+    window.history.pushState(state, '', newUrl);
     
-    console.log(`🔗 URL状态已更新: ${action} - ${date} - ${category}${limit ? ` - ${limit}` : ''}`);
+    const logMsg = action === 'smart_search' 
+        ? `🔗 URL状态已更新: ${action} - 内容长度: ${content?.length || 0}${filter ? ` - 筛选: ${filter}` : ''}`
+        : `🔗 URL状态已更新: ${action} - ${date} - ${category}${limit ? ` - ${limit}` : ''}`;
+    console.log(logMsg);
 }
 
 /**
@@ -46,8 +63,16 @@ function updateUrlState(action, date, category, limit = null) {
 async function executeFromUrlParams(params) {
     const { action, date, category, limit } = params;
     
-    if (!action || !date) {
-        console.log('📋 URL中没有有效的操作参数，使用默认状态');
+    console.log('🔗 executeFromUrlParams被调用，参数:', params);
+    
+    if (!action) {
+        console.log('📋 URL中没有action参数，使用默认状态');
+        return;
+    }
+    
+    // 对于智能搜索，不需要date参数
+    if (action !== 'smart_search' && !date) {
+        console.log('📋 URL中没有有效的操作参数（缺少date），使用默认状态');
         return;
     }
     
@@ -81,6 +106,10 @@ async function executeFromUrlParams(params) {
     if (action === 'search') {
         await searchArticles();
         // searchArticles 函数内部会调用 setSearchMode()
+    } else if (action === 'smart_search') {
+        console.log('🔍 检测到智能搜索action，准备执行');
+        // 执行智能搜索
+        await executeSmartSearchFromUrl(params);
     } else if (action === 'analysis') {
         // 从 URL 直接访问时，只显示数据库中的结果，不触发新的分析
         console.log('📖 从 URL 访问分析结果，仅加载数据库中的结果');
@@ -247,4 +276,106 @@ function handlePopState(event) {
         const params = parseUrlParams();
         executeFromUrlParams(params);
     }
+}
+
+/**
+ * 从URL执行智能搜索
+ * @param {Object} params - URL参数对象
+ */
+async function executeSmartSearchFromUrl(params) {
+    const { content, filter } = params;
+    
+    
+    if (!content) {
+        console.log('📋 URL中没有智能搜索内容');
+        return;
+    }
+    
+    
+    // 等待DOM完全加载
+    await new Promise(resolve => {
+        if (document.readyState === 'complete') {
+            resolve();
+        } else {
+            window.addEventListener('load', resolve);
+        }
+    });
+    
+    try {
+        // 解码Base64内容（URLSearchParams已经处理了URL解码）
+        const decodedContent = decodeURIComponent(escape(atob(content)));
+        
+        // 设置搜索内容到输入框
+        const smartSearchInput = document.getElementById('smartSearchInput');
+        if (smartSearchInput) {
+            smartSearchInput.value = decodedContent;
+        }
+        
+        // 执行智能搜索
+        if (typeof startSmartSearch !== 'undefined') {
+            await startSmartSearch();
+            
+            // 应用日期筛选（如果有）
+            if (filter && filter !== 'all') {
+                setTimeout(() => {
+                    applyDateFilterFromUrl(filter);
+                }, 1000); // 延迟应用筛选，确保搜索完成
+            }
+        }
+        
+    } catch (error) {
+        console.error('解析智能搜索URL参数失败:', error);
+        if (typeof showError === 'function') {
+            showError('⚠️ URL参数解析失败，请重新搜索');
+        } else {
+            console.error('showError函数不可用，错误:', error.message);
+        }
+    }
+}
+
+/**
+ * 从URL应用日期筛选
+ * @param {string} filterString - 筛选字符串，如 "2025-08-25,2025-08-29"
+ */
+function applyDateFilterFromUrl(filterString) {
+    if (!filterString || filterString === 'all') {
+        return;
+    }
+    
+    try {
+        const selectedDates = filterString.split(',');
+        
+        // 取消"全部日期"选项
+        const allCheckbox = document.querySelector('#dateFilterDropdown input[value="all"]');
+        if (allCheckbox) {
+            allCheckbox.checked = false;
+        }
+        
+        // 只选中指定的日期
+        const checkboxes = document.querySelectorAll('#dateFilterOptions input[type="checkbox"]');
+        checkboxes.forEach(cb => {
+            cb.checked = selectedDates.includes(cb.value);
+        });
+        
+        // 自动应用筛选
+        if (typeof applyColumnDateFilter !== 'undefined') {
+            // 创建模拟事件对象
+            const mockEvent = { stopPropagation: () => {} };
+            applyColumnDateFilter(mockEvent);
+        }
+        
+        console.log(`📅 已从URL应用日期筛选: ${filterString}`);
+        
+    } catch (error) {
+        console.error('应用URL日期筛选失败:', error);
+    }
+}
+
+/**
+ * 更新智能搜索的URL状态
+ * @param {string} content - 搜索内容
+ * @param {string} filter - 当前筛选状态
+ */
+function updateSmartSearchUrlState(content, filter = 'all') {
+    updateUrlState('smart_search', null, null, null, content, filter);
 }

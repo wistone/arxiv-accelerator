@@ -22,6 +22,7 @@ from backend.services.analysis_service import analyze_paper
 from backend.services.arxiv_service import import_arxiv_papers
 from backend.services.affiliation_service import get_author_affiliations, clear_affiliation_cache
 from backend.services.concurrent_analysis_service import get_concurrent_service, run_performance_comparison
+from backend.services.smart_search_service import smart_search_papers
 from backend.clients.ai_client import DoubaoClient
 from backend.db import repo as db_repo
 
@@ -897,6 +898,46 @@ def clear_cache():
 
 
 
+
+@app.route('/api/smart_search', methods=['POST'])
+def handle_smart_search():
+    """
+    智能搜索API：基于arXiv ID文本批量获取论文信息
+    """
+    try:
+        # 获取请求数据
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': '请求数据为空'}), 400
+        
+        text_content = data.get('text_content', '').strip()
+        if not text_content:
+            return jsonify({'error': '请提供包含arXiv ID的文本内容'}), 400
+        
+        # 记录请求
+        print(f"🔍 [智能搜索] 开始处理智能搜索请求，文本长度: {len(text_content)} 字符")
+        
+        # 执行智能搜索
+        start_time = time.time()
+        result = smart_search_papers(text_content, delay=0.3)
+        processing_time = time.time() - start_time
+        
+        # 记录结果
+        if result.get('success'):
+            performance = result.get('performance', {})
+            print(f"✅ [智能搜索] 搜索完成，耗时: {processing_time:.2f}s")
+            print(f"   📊 统计: 总计{performance.get('total_processed', 0)}篇，成功{performance.get('found_count', 0)}篇，失败{performance.get('not_exist_count', 0)}篇，错误{performance.get('error_count', 0)}篇")
+        else:
+            print(f"❌ [智能搜索] 搜索失败: {result.get('message', '未知错误')}")
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        print(f"❌ [智能搜索] 处理请求时发生异常: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': f'服务器内部错误: {str(e)}'
+        }), 500
 
 if __name__ == '__main__':
     import sys
