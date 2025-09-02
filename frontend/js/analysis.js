@@ -200,6 +200,11 @@ async function startAnalysis() {
 }
 
 async function startNewAnalysis(selectedDate, selectedCategory, selectedRange, testCount) {
+    // 清空上一次分析结果状态
+    if (typeof clearPreviousAnalysisResults === 'function') {
+        clearPreviousAnalysisResults();
+    }
+    
     // 隐藏测试选项，显示进度条
     document.getElementById('testOptions').style.display = 'none';
     document.getElementById('progressContainer').style.display = 'block';

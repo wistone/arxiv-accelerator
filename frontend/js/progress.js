@@ -12,6 +12,17 @@ function updateProgress(data) {
         document.getElementById('progressText').textContent = '正在连接分析服务...';
         return;
     }
+    
+    // 处理分析开始状态，清空之前的显示信息
+    if (status === 'starting' && current === 0) {
+        document.getElementById('currentTitle').textContent = '准备开始分析...';
+        document.getElementById('currentAnalysis').textContent = '等待分析开始...';
+        const authorsElement = document.getElementById('currentAuthors');
+        const abstractElement = document.getElementById('currentAbstract');
+        if (authorsElement) authorsElement.textContent = '';
+        if (abstractElement) abstractElement.textContent = '';
+        return;
+    }
 
     // 更新进度条
     const progress = total > 0 ? (current / total) * 100 : 0;
@@ -43,7 +54,11 @@ function updateProgress(data) {
     // 优先显示最新完成的论文，否则显示当前处理的论文
     const displayPaper = last_completed_paper || paper;
     
-    if (displayPaper) {
+    // 如果没有当前论文数据(paper)，且只有历史完成数据(last_completed_paper)，则不显示
+    // 这避免了显示上一次分析的残留信息
+    const shouldHideOldData = !paper && last_completed_paper;
+    
+    if (displayPaper && !shouldHideOldData) {
         // 构建标题，区分是最新完成还是正在处理
         let titlePrefix = '';
         if (last_completed_paper) {
@@ -60,9 +75,15 @@ function updateProgress(data) {
         // 显示论文标题
         document.getElementById('currentTitle').textContent = `${titlePrefix}: ${displayPaper.title}`;
         
-        // 隐藏作者和摘要信息（在并发模式下不显示）
-        document.getElementById('currentAuthors').textContent = '并发分析模式 - 专注于速度';
-        document.getElementById('currentAbstract').textContent = '查看完整信息请在分析完成后查看结果表格';
+        // 隐藏作者和摘要信息（在并发模式下不显示）- 安全检查元素是否存在
+        const authorsElement = document.getElementById('currentAuthors');
+        const abstractElement = document.getElementById('currentAbstract');
+        if (authorsElement) {
+            authorsElement.textContent = '并发分析模式 - 专注于速度';
+        }
+        if (abstractElement) {
+            abstractElement.textContent = '查看完整信息请在分析完成后查看结果表格';
+        }
         
         // 显示分析结果
         if (analysis_result) {
@@ -98,10 +119,18 @@ function updateProgress(data) {
                 document.getElementById('currentAnalysis').textContent = '正在分析...';
             }
         }
+    } else {
+        // 没有要显示的论文数据时，显示等待状态
+        document.getElementById('currentTitle').textContent = '等待分析数据...';
+        document.getElementById('currentAnalysis').textContent = '准备中...';
+        const authorsElement = document.getElementById('currentAuthors');
+        const abstractElement = document.getElementById('currentAbstract');
+        if (authorsElement) authorsElement.textContent = '等待分析开始';
+        if (abstractElement) abstractElement.textContent = '等待分析开始';
     }
 }
 
-function startSSEConnection(selectedDate, selectedCategory, testCount, rangeType) {
+function startSSEConnection(selectedDate, selectedCategory, testCount, rangeType, taskId = null) {
     // 清理之前的连接
     if (window.AppState.currentEventSource) {
         window.AppState.currentEventSource.close();
@@ -109,11 +138,29 @@ function startSSEConnection(selectedDate, selectedCategory, testCount, rangeType
 
     console.log('🔌 启动SSE连接...');
     
+    // 清空上一次分析的UI状态
+    if (typeof clearPreviousAnalysisResults === 'function') {
+        clearPreviousAnalysisResults();
+    }
+    
     // 保存当前分析的范围类型
     window.AppState.currentAnalysisRange = rangeType || 'full';
     
     // 使用Server-Sent Events获取实时进度 (并发分析类型)
-    window.AppState.currentEventSource = new EventSource(`/api/analysis_progress?date=${selectedDate}&category=${selectedCategory}&test_count=${testCount || ''}&type=concurrent`);
+    let url;
+    console.log('🔧 [SSE连接] 参数检查 - taskId:', taskId, '(类型:', typeof taskId, ', 布尔值:', !!taskId, ')');
+    if (taskId) {
+        // 智能搜索分析：使用自定义task_id
+        url = `/api/analysis_progress?task_id=${taskId}&type=concurrent`;
+        console.log('✅ [SSE连接] 使用智能搜索模式，task_id:', taskId);
+    } else {
+        // 普通分析：使用日期分类参数
+        url = `/api/analysis_progress?date=${selectedDate}&category=${selectedCategory}&test_count=${testCount || ''}&type=concurrent`;
+        console.log('✅ [SSE连接] 使用普通分析模式，date/category:', selectedDate, selectedCategory);
+    }
+    
+    console.log('📡 SSE连接URL:', url);
+    window.AppState.currentEventSource = new EventSource(url);
     
     window.AppState.currentEventSource.onmessage = function(event) {
         console.log('SSE received:', event.data);
@@ -257,7 +304,15 @@ async function onAnalysisComplete(data) {
     
     // 立即关闭弹窗并加载新表格
     closeModal();
-    // 使用完成的分析范围类型来加载结果
-    const completedRangeType = data.completed_range_type || window.AppState.currentAnalysisRange || 'full';
-    await loadAnalysisResults(completedRangeType);
+    
+    // 检查是否为智能搜索分析
+    if (smartSearchState && smartSearchState.currentAnalysisTask) {
+        console.log('🔍 [智能搜索] 分析完成，加载智能搜索结果');
+        await loadSmartSearchAnalysisResults();
+    } else {
+        console.log('📊 [普通分析] 分析完成，加载普通分析结果');
+        // 使用完成的分析范围类型来加载结果
+        const completedRangeType = data.completed_range_type || window.AppState.currentAnalysisRange || 'full';
+        await loadAnalysisResults(completedRangeType);
+    }
 }

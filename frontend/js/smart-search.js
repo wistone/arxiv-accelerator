@@ -6,8 +6,14 @@
 // 智能搜索状态管理
 const smartSearchState = {
     isSearching: false,
-    currentResults: null
+    currentResults: null,
+    isAnalyzing: false,
+    currentAnalysisTask: null,
+    analysisProgress: null
 };
+
+// 确保全局可访问
+window.smartSearchState = smartSearchState;
 
 /**
  * 开始智能搜索
@@ -61,7 +67,7 @@ async function startSmartSearch() {
         if (result.success === true) {
             handleSmartSearchSuccess(result);
             
-            // 更新URL状态，使搜索结果可分享
+            // 更新URL状态
             if (typeof updateSmartSearchUrlState !== 'undefined') {
                 updateSmartSearchUrlState(inputText, 'all');
             }
@@ -96,10 +102,11 @@ function handleSmartSearchSuccess(result) {
     if (result.articles && result.articles.length > 0) {
         displaySmartSearchArticles(result);
         
-        // 显示分享按钮
-        const shareBtn = document.getElementById('shareSmartSearchBtn');
-        if (shareBtn) {
-            shareBtn.style.display = 'inline-block';
+        // 显示分析按钮
+        const analyzeBtn = document.getElementById('smartAnalyzeBtn');
+        if (analyzeBtn) {
+            analyzeBtn.style.display = 'inline-block';
+            analyzeBtn.disabled = false;
         }
     }
     
@@ -260,7 +267,7 @@ function displayArticlesTableManually(result) {
     // 创建成功提示条
     const successBanner = `
         <div class="alert alert-success" style="background-color: #d1edcc; border: 1px solid #c3e6cb; color: #155724; padding: 12px; border-radius: 8px; margin-bottom: 20px;">
-            成功加载智能搜索数据，共 ${result.total} 篇文章
+            智能搜索完成！成功加载共 ${result.total} 篇文章
         </div>
     `;
     
@@ -334,8 +341,56 @@ function clearPreviousDateFilter() {
     // 隐藏Excel风格的筛选下拉菜单
     hideAllFilterDropdowns();
     
+    // 清除普通搜索的批次按钮显示区域
+    const batchContainers = document.querySelectorAll('.batch-filter-container');
+    batchContainers.forEach(container => {
+        container.remove();
+        console.log('🧹 已清除批次按钮容器');
+    });
+    
+    // 也清除可能的ID容器
+    const batchContainer = document.getElementById('batchContainer');
+    if (batchContainer) {
+        batchContainer.style.display = 'none';
+        batchContainer.innerHTML = '';
+    }
+    
+    // 清除论文总数显示
+    const paperCountElement = document.getElementById('paperCount');
+    if (paperCountElement) {
+        paperCountElement.style.display = 'none';
+        paperCountElement.innerHTML = '';
+    }
+    
     // 清除缓存的文章数据
     delete window.smartSearchArticles;
+    
+    // 清除主表格内容
+    const tableBody = document.getElementById('tableBody');
+    if (tableBody) {
+        tableBody.innerHTML = '';
+    }
+    
+    // 清除成功消息显示
+    const successMessage = document.querySelector('.success-message');
+    if (successMessage) {
+        successMessage.style.display = 'none';
+    }
+    
+    // 禁用普通搜索的分析按钮
+    const analyzeBtn = document.getElementById('analyzeBtn');
+    if (analyzeBtn) {
+        analyzeBtn.disabled = true;
+        analyzeBtn.textContent = '📊 分析';
+    }
+    
+    // 重置AppState中的普通搜索状态
+    if (window.AppState) {
+        window.AppState.hasSearched = false;
+        window.AppState.currentArticles = [];
+        // 清除批次相关状态
+        delete window.AppState.currentBatchInfo;
+    }
 }
 
 /**
@@ -346,6 +401,9 @@ function clearSmartSearchResults() {
     
     input.value = '';
     smartSearchState.currentResults = null;
+    smartSearchState.isAnalyzing = false;
+    smartSearchState.currentAnalysisTask = null;
+    smartSearchState.analysisProgress = null;
     
     // 清空主要内容区域
     const contentDiv = document.getElementById('content');
@@ -353,10 +411,11 @@ function clearSmartSearchResults() {
         contentDiv.innerHTML = '';
     }
     
-    // 隐藏分享按钮
-    const shareBtn = document.getElementById('shareSmartSearchBtn');
-    if (shareBtn) {
-        shareBtn.style.display = 'none';
+    // 隐藏分析按钮
+    const analyzeBtn = document.getElementById('smartAnalyzeBtn');
+    if (analyzeBtn) {
+        analyzeBtn.style.display = 'none';
+        analyzeBtn.disabled = true;
     }
     
     // 清除日期筛选器
@@ -618,126 +677,890 @@ document.addEventListener('change', function(event) {
 });
 
 /**
- * 分享智能搜索结果
+ * 分析智能搜索结果
  */
-function shareSmartSearch() {
+async function analyzeSmartSearchResults() {
+    if (!smartSearchState.currentResults || !smartSearchState.currentResults.articles || smartSearchState.currentResults.articles.length === 0) {
+        showAlert('请先进行智能搜索获取文章列表', 'warning');
+        return;
+    }
+    
+    // 检查是否正在搜索或分析
+    if (smartSearchState.isSearching || smartSearchState.isAnalyzing) {
+        showAlert('请等待当前操作完成', 'warning');
+        return;
+    }
+    
+    // 提取paper_ids
+    const paperIds = smartSearchState.currentResults.articles.map(article => article.paper_id).filter(id => id);
+    
+    if (paperIds.length === 0) {
+        showAlert('无法获取论文ID，请重新搜索', 'error');
+        return;
+    }
+    
+    console.log('📊 开始智能搜索分析，论文数量:', paperIds.length);
+    
+    // 检查已有分析结果
     try {
-        const currentUrl = window.location.href;
+        // 设置分析状态
+        smartSearchState.isAnalyzing = true;
         
-        // 复制到剪贴板
-        if (navigator.clipboard && window.isSecureContext) {
-            navigator.clipboard.writeText(currentUrl).then(() => {
-                showAlert('🎉 搜索结果链接已复制到剪贴板！', 'success');
-            }).catch(err => {
-                console.error('复制到剪贴板失败:', err);
-                fallbackCopyToClipboard(currentUrl);
-            });
+        const analyzeBtn = document.getElementById('smartAnalyzeBtn');
+        if (analyzeBtn) {
+            analyzeBtn.disabled = true;
+            analyzeBtn.textContent = '检查中...';
+        }
+        
+        const response = await fetch('/api/check_analysis_exists_by_ids', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                paper_ids: paperIds
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            // 显示分析状态
+            const analysisStatus = document.getElementById('analysisStatus');
+            if (analysisStatus) {
+                analysisStatus.innerHTML = `已完成分析 ${data.completed} 篇文章 / 共 ${data.total} 篇文章`;
+            }
+            
+            // 动态更新下拉选项
+            updateSmartSearchAnalysisOptions(data);
+            
+            // 显示分析模态框，但隐藏进度相关区域
+            document.getElementById('analysisModal').style.display = 'block';
+            document.getElementById('testOptions').style.display = 'block';
+            
+            // 隐藏进度相关元素，只有开始分析后才显示
+            document.getElementById('progressContainer').style.display = 'none';
+            document.getElementById('currentPaper').style.display = 'none';
+            const analysisSummary = document.getElementById('analysisSummary');
+            if (analysisSummary) {
+                analysisSummary.style.display = 'none';
+            }
+            
+            // 修改模态框中"开始分析"按钮的onclick事件为智能搜索分析函数
+            let startBtn = document.getElementById('startAnalysisBtn');
+            const showExistingBtn = document.getElementById('showExistingBtn');
+            
+            if (startBtn) {
+                startBtn.setAttribute('onclick', 'startSmartSearchAnalysis()');
+            }
+            
+            // 控制按钮状态：当全部分析完成时，禁用"开始分析"，启用"加载已有分析"
+            if (data.completed >= data.total && data.total > 0) {
+                // 全部分析完成
+                if (startBtn) {
+                    startBtn.disabled = true;
+                    startBtn.textContent = '分析已完成';
+                }
+                if (showExistingBtn) {
+                    showExistingBtn.style.display = 'inline-block';
+                    showExistingBtn.disabled = false;
+                    showExistingBtn.textContent = '加载已有分析';
+                    showExistingBtn.setAttribute('onclick', 'loadSmartSearchAnalysisResults(); closeModal();');
+                }
+            } else {
+                // 还有未分析的论文
+                if (startBtn) {
+                    startBtn.disabled = false;
+                    startBtn.textContent = '开始分析';
+                }
+                if (showExistingBtn) {
+                    if (data.completed > 0) {
+                        // 有部分已分析，显示"加载已有分析"按钮
+                        showExistingBtn.style.display = 'inline-block';
+                        showExistingBtn.disabled = false;
+                        showExistingBtn.textContent = '加载已有分析';
+                        showExistingBtn.setAttribute('onclick', 'loadSmartSearchAnalysisResults(); closeModal();');
+                    } else {
+                        // 没有已分析的，隐藏按钮
+                        showExistingBtn.style.display = 'none';
+                    }
+                }
+            }
+            
         } else {
-            // 降级方案
-            fallbackCopyToClipboard(currentUrl);
+            throw new Error(data.error || '检查分析状态失败');
         }
         
     } catch (error) {
-        console.error('分享功能错误:', error);
-        showAlert('分享失败，请手动复制URL', 'warning');
-    }
-}
-
-/**
- * 降级复制到剪贴板方案
- */
-function fallbackCopyToClipboard(text) {
-    try {
-        const textArea = document.createElement('textarea');
-        textArea.value = text;
-        textArea.style.position = 'fixed';
-        textArea.style.left = '-999999px';
-        textArea.style.top = '-999999px';
-        document.body.appendChild(textArea);
-        textArea.focus();
-        textArea.select();
+        console.error('检查智能搜索分析状态失败:', error);
+        showAlert('检查分析状态失败: ' + error.message, 'error');
+    } finally {
+        // 重置分析状态
+        smartSearchState.isAnalyzing = false;
         
-        const result = document.execCommand('copy');
-        textArea.remove();
-        
-        if (result) {
-            showAlert('🎉 搜索结果链接已复制到剪贴板！', 'success');
-        } else {
-            // 显示URL让用户手动复制
-            showUrlDialog(text);
+        const analyzeBtn = document.getElementById('smartAnalyzeBtn');
+        if (analyzeBtn) {
+            analyzeBtn.disabled = false;
+            analyzeBtn.textContent = '📊 分析';
         }
-    } catch (err) {
-        console.error('降级复制方案失败:', err);
-        showUrlDialog(text);
     }
 }
 
 /**
- * 显示URL对话框供用户手动复制
+ * 更新智能搜索分析选项
  */
-function showUrlDialog(url) {
-    // 创建模态对话框
-    const modal = document.createElement('div');
-    modal.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background-color: rgba(0,0,0,0.5);
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        z-index: 10000;
-    `;
+function updateSmartSearchAnalysisOptions(data) {
+    const testCountSelect = document.getElementById('testCount');
+    if (!testCountSelect) return;
     
-    modal.innerHTML = `
-        <div style="
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            max-width: 600px;
-            width: 90%;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        ">
-            <h3 style="margin: 0 0 15px 0; color: #333;">🔗 分享链接</h3>
-            <p style="margin: 0 0 15px 0; color: #666;">请手动复制以下链接：</p>
-            <textarea readonly style="
-                width: 100%;
-                height: 80px;
-                padding: 8px;
-                border: 1px solid #ddd;
-                border-radius: 4px;
-                font-family: monospace;
-                font-size: 12px;
-                resize: none;
-                box-sizing: border-box;
-            ">${url}</textarea>
-            <div style="text-align: right; margin-top: 15px;">
-                <button onclick="this.closest('.modal-container').remove()" style="
-                    padding: 8px 16px;
-                    background: #007bff;
-                    color: white;
-                    border: none;
-                    border-radius: 4px;
-                    cursor: pointer;
-                ">关闭</button>
+    // 清空选项
+    testCountSelect.innerHTML = '';
+    
+    if (data.available_options && data.available_options.length > 0) {
+        // 根据后端提供的可用选项动态生成下拉菜单
+        data.available_options.forEach(option => {
+            const optionElement = document.createElement('option');
+            optionElement.value = option === 'full' ? '' : 
+                               option === 'top5' ? '5' :
+                               option === 'top10' ? '10' :
+                               option === 'top20' ? '20' : '';
+            optionElement.textContent = option === 'full' ? '全部分析' :
+                                      option === 'top5' ? '仅前5篇' :
+                                      option === 'top10' ? '仅前10篇' :
+                                      option === 'top20' ? '仅前20篇' : option;
+            testCountSelect.appendChild(optionElement);
+        });
+        
+        // 设置默认选择第一个可用选项
+        testCountSelect.value = data.available_options[0] === 'full' ? '' : 
+                               data.available_options[0] === 'top5' ? '5' :
+                               data.available_options[0] === 'top10' ? '10' :
+                               data.available_options[0] === 'top20' ? '20' : '';
+    } else {
+        // 如果没有可用选项，显示默认的全部分析选项
+        const optionElement = document.createElement('option');
+        optionElement.value = '';
+        optionElement.textContent = '全部分析';
+        testCountSelect.appendChild(optionElement);
+    }
+    
+    console.log('📊 [智能搜索] 可用分析选项:', data.available_options, '总计:', data.total, '已完成:', data.completed);
+}
+
+/**
+ * 开始智能搜索分析
+ */
+async function startSmartSearchAnalysis() {
+    // 检查状态
+    if (smartSearchState.isAnalyzing) {
+        showAlert('分析已在进行中，请等待完成', 'warning');
+        return;
+    }
+    
+    const testCount = document.getElementById('testCount').value;
+    const paperIds = smartSearchState.currentResults.articles.map(article => article.paper_id).filter(id => id);
+    
+    // 确定分析范围
+    const selectedRange = testCount === '5' ? 'top5' :
+                         testCount === '10' ? 'top10' :
+                         testCount === '20' ? 'top20' : 'full';
+    
+    const testCountInt = testCount === '' ? null : parseInt(testCount);
+    
+    console.log('🚀 开始智能搜索分析，范围:', selectedRange, '论文数:', paperIds.length);
+    
+    // 更新URL状态以反映智能搜索分析状态
+    const smartSearchInput = document.getElementById('smartSearchInput');
+    if (smartSearchInput && smartSearchInput.value.trim()) {
+        // 获取当前筛选状态（如果有的话）
+        let currentFilter = 'all';
+        try {
+            const checkedDates = Array.from(document.querySelectorAll('#dateFilterOptions input[type="checkbox"]:checked')).map(cb => cb.value).filter(v => v !== 'all');
+            if (checkedDates.length > 0) {
+                currentFilter = checkedDates.join(',');
+            }
+        } catch (e) {
+            // 如果筛选元素不存在，保持默认值
+        }
+        
+        updateSmartSearchAnalysisUrlState(smartSearchInput.value.trim(), selectedRange, currentFilter);
+    }
+    
+    // 清空上一次分析结果状态
+    clearPreviousAnalysisResults();
+    
+    // 隐藏测试选项，显示进度条
+    document.getElementById('testOptions').style.display = 'none';
+    document.getElementById('progressContainer').style.display = 'block';
+    document.getElementById('currentPaper').style.display = 'block';
+    
+    window.AppState = window.AppState || {};
+    window.AppState.analysisStartTime = Date.now();
+    window.AppState.lastProgressUpdate = Date.now();
+    
+    try {
+        // 设置分析状态
+        smartSearchState.isAnalyzing = true;
+        
+        const analysisStartBtn = document.getElementById('startAnalysisBtn');
+        if (analysisStartBtn) {
+            analysisStartBtn.disabled = true;
+            analysisStartBtn.textContent = '启动中...';
+        }
+        
+        const overlay = document.getElementById('overlayLoading');
+        if (overlay) overlay.style.display = 'flex';
+        
+        const response = await fetch('/api/analyze_papers_by_ids', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                paper_ids: paperIds,
+                range_type: selectedRange,
+                workers: 5
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error('智能搜索分析请求失败');
+        }
+        
+        const data = await response.json();
+        if (data.error) {
+            throw new Error(data.error);
+        }
+        
+        // 检查是否所有论文都已分析完成
+        if (data.all_analyzed) {
+            console.log('🎉 [智能搜索分析] 所有论文已分析完成，直接加载结果', data);
+            
+            // 隐藏进度界面
+            document.getElementById('progressContainer').style.display = 'none';
+            document.getElementById('currentPaper').style.display = 'none';
+            
+            // 显示详细完成信息
+            const analysisStatus = document.getElementById('analysisStatus');
+            if (analysisStatus) {
+                const msg = `所有论文已分析完成！共 ${data.total_papers} 篇论文（已分析${data.analyzed_count}篇，待分析${data.pending_count}篇）`;
+                analysisStatus.innerHTML = msg;
+            }
+            
+            // 直接加载结果
+            setTimeout(async () => {
+                closeModal();
+                await loadSmartSearchAnalysisResults();
+            }, 1500); // 给用户1.5秒时间看到详细消息
+            
+            return;
+        }
+        
+        // 使用后端返回的真实task_id
+        const taskId = data.task_id;
+        console.log('🔍 [智能搜索分析] 后端返回的task_id:', taskId, '类型:', typeof taskId);
+        
+        // 存储当前分析任务ID
+        smartSearchState.currentAnalysisTask = taskId;
+        
+        // 开始SSE连接，复用现有的进度监听机制
+        console.log('🔗 [智能搜索分析] 调用SSE连接，参数:', {
+            date: '',
+            category: '',
+            testCount: testCountInt,
+            range: selectedRange,
+            taskId: taskId
+        });
+        startSSEConnection('', '', testCountInt, selectedRange, taskId);
+        startProgressFallbackCheck('', '', taskId);
+        
+        // 分析启动成功，重置UI状态但保持任务跟踪
+        smartSearchState.isAnalyzing = false; // 分析任务已启动，重置中间状态
+        const resetBtn = document.getElementById('startAnalysisBtn');
+        if (resetBtn) {
+            resetBtn.disabled = false;
+            resetBtn.textContent = '开始分析';
+        }
+        const successOverlay = document.getElementById('overlayLoading');
+        if (successOverlay) successOverlay.style.display = 'none';
+        
+    } catch (error) {
+        console.error('启动智能搜索分析失败:', error);
+        showAlert('启动分析失败: ' + error.message, 'error');
+        
+        // 只有发生错误时才重置分析状态
+        smartSearchState.isAnalyzing = false;
+        smartSearchState.currentAnalysisTask = null;
+        
+        const errorResetBtn = document.getElementById('startAnalysisBtn');
+        if (errorResetBtn) {
+            errorResetBtn.disabled = false;
+            errorResetBtn.textContent = '开始分析';
+        }
+        const errorOverlay = document.getElementById('overlayLoading');
+        if (errorOverlay) errorOverlay.style.display = 'none';
+    }
+}
+
+/**
+ * 加载智能搜索分析结果
+ */
+async function loadSmartSearchAnalysisResults() {
+    if (!smartSearchState.currentResults || !smartSearchState.currentResults.articles) {
+        console.error('❌ [智能搜索] 无法加载分析结果：缺少论文数据');
+        return;
+    }
+    
+    const paperIds = smartSearchState.currentResults.articles.map(article => article.paper_id).filter(id => id);
+    
+    if (paperIds.length === 0) {
+        console.error('❌ [智能搜索] 无法加载分析结果：无有效的paper_ids');
+        return;
+    }
+    
+    console.log('🔍 [智能搜索] 开始加载分析结果，paper_ids:', paperIds);
+    
+    try {
+        showLoading();
+        
+        const response = await fetch('/api/get_analysis_results_by_ids', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                paper_ids: paperIds
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.error) {
+            throw new Error(data.error);
+        }
+        
+        console.log('📊 [智能搜索] 分析结果加载成功:', data);
+        
+        // 使用与普通分析一致的表格显示函数
+        if (typeof displayAnalysisResults === 'function') {
+            displayAnalysisResults(data.results);
+        } else {
+            // 如果displayAnalysisResults不存在，使用智能搜索专用函数
+            displaySmartSearchAnalysisResults(data);
+        }
+        
+        // 确定加载的分析范围
+        const resultCount = data.results ? data.results.length : 0;
+        let loadedRange = 'full';
+        if (resultCount <= 5) {
+            loadedRange = 'top5';
+        } else if (resultCount <= 10) {
+            loadedRange = 'top10';
+        } else if (resultCount <= 20) {
+            loadedRange = 'top20';
+        }
+        
+        // 更新URL状态以反映加载的分析结果
+        const smartSearchInput = document.getElementById('smartSearchInput');
+        if (smartSearchInput && smartSearchInput.value.trim()) {
+            // 获取当前筛选状态（如果有的话）
+            let currentFilter = 'all';
+            try {
+                const checkedDates = Array.from(document.querySelectorAll('#dateFilterOptions input[type="checkbox"]:checked')).map(cb => cb.value).filter(v => v !== 'all');
+                if (checkedDates.length > 0) {
+                    currentFilter = checkedDates.join(',');
+                }
+            } catch (e) {
+                // 如果筛选元素不存在，保持默认值
+            }
+            
+            updateSmartSearchAnalysisUrlState(smartSearchInput.value.trim(), loadedRange, currentFilter);
+        }
+        
+        // 清理状态
+        smartSearchState.currentAnalysisTask = null;
+        
+        console.log('✅ [智能搜索] 分析结果显示完成');
+        
+    } catch (error) {
+        console.error('❌ [智能搜索] 加载分析结果失败:', error);
+        showError('加载智能搜索分析结果失败: ' + error.message);
+    } finally {
+        hideLoading();
+    }
+}
+
+/**
+ * 显示智能搜索分析结果表格（与普通分析保持一致的8列格式）
+ */
+function displaySmartSearchAnalysisResults(data) {
+    // 保存当前分析结果到全局状态
+    window.AppState = window.AppState || {};
+    window.AppState.currentAnalysisArticles = data.results.map((result, index) => ({
+        ...result,
+        number: index + 1
+    }));
+    
+    // 切换到分析模式（宽屏显示）
+    setAnalysisMode();
+    
+    // 显示成功消息
+    showSuccess(`智能搜索分析完成！共分析 ${data.results.length} 篇论文`);
+    
+    // 更新统计信息
+    const passedCount = data.results.filter(r => r.pass_filter).length;
+    const rejectedCount = data.results.length - passedCount;
+    
+    const statsDiv = document.getElementById('stats');
+    const totalArticlesSpan = document.getElementById('totalArticles');
+    if (statsDiv && totalArticlesSpan) {
+        // 扩展统计信息以包含分析结果
+        statsDiv.innerHTML = `
+            <div class="stat-item">
+                <span>📄 分析总数:</span>
+                <span class="stat-value">${data.results.length}</span>
             </div>
-        </div>
+            <div class="stat-item">
+                <span>✅ 通过筛选:</span>
+                <span class="stat-value">${passedCount}</span>
+            </div>
+            <div class="stat-item">
+                <span>❌ 未通过筛选:</span>
+                <span class="stat-value">${rejectedCount}</span>
+            </div>
+        `;
+        statsDiv.style.display = 'block';
+    }
+    
+    // 设置标准的8列分析表格表头
+    const tableBody = document.getElementById('tableBody');
+    tableBody.innerHTML = '';
+
+    const tableHead = document.querySelector('#arxivTable thead tr');
+    let headerHTML = `
+        <th class="number-cell">序号</th>
+        <th class="filter-cell">筛选结果</th>
+        <th class="score-cell sortable" onclick="sortSmartSearchTable('raw_score')">总分<span class="sort-indicator" id="raw_score_indicator">↕️</span></th>
+        <th class="details-cell">详细分析</th>
+        <th class="title-cell">标题</th>
+        <th class="authors-cell">作者</th>
+        <th class="affiliations-cell">作者机构</th>
+        <th class="abstract-cell">摘要</th>
     `;
     
-    modal.className = 'modal-container';
-    document.body.appendChild(modal);
+    tableHead.innerHTML = headerHTML;
+
+    // 重置排序状态
+    window.AppState.sortColumn = '';
+    window.AppState.sortDirection = 'asc';
     
-    // 自动选中文本
-    const textarea = modal.querySelector('textarea');
-    textarea.focus();
-    textarea.select();
+    // 显示智能搜索分析结果
+    displaySmartSearchSortedResults(data.results);
     
-    // 点击背景关闭
-    modal.addEventListener('click', (e) => {
-        if (e.target === modal) {
-            modal.remove();
+    document.getElementById('tableContainer').style.display = 'block';
+}
+
+/**
+ * 智能搜索排序表格
+ */
+function sortSmartSearchTable(column) {
+    if (!window.AppState.currentAnalysisArticles || window.AppState.currentAnalysisArticles.length === 0) {
+        return;
+    }
+
+    // 切换排序方向
+    if (window.AppState.sortColumn === column) {
+        window.AppState.sortDirection = window.AppState.sortDirection === 'asc' ? 'desc' : 'asc';
+    } else {
+        window.AppState.sortColumn = column;
+        window.AppState.sortDirection = 'asc';
+    }
+
+    // 更新排序指示器
+    updateSortIndicators(column, window.AppState.sortDirection);
+
+    // 排序数据
+    const sortedArticles = [...window.AppState.currentAnalysisArticles].sort((a, b) => {
+        let aValue, bValue;
+
+        try {
+            const aAnalysis = JSON.parse(a.analysis_result || '{}');
+            const bAnalysis = JSON.parse(b.analysis_result || '{}');
+            
+            if (column === 'raw_score') {
+                aValue = aAnalysis.raw_score || 0;
+                bValue = bAnalysis.raw_score || 0;
+            } else {
+                return 0;
+            }
+        } catch (e) {
+            aValue = 0;
+            bValue = 0;
+        }
+
+        if (window.AppState.sortDirection === 'asc') {
+            return aValue - bValue;
+        } else {
+            return bValue - aValue;
         }
     });
+
+    // 重新显示排序后的数据
+    displaySmartSearchSortedResults(sortedArticles);
 }
+
+/**
+ * 显示智能搜索排序后的结果
+ */
+function displaySmartSearchSortedResults(articles) {
+    const tableBody = document.getElementById('tableBody');
+    tableBody.innerHTML = '';
+
+    articles.forEach((article, index) => {
+        const row = document.createElement('tr');
+        
+        // 解析分析结果JSON
+        let analysisObj = {};
+        let passFilter = false;
+        let rawScore = 0;
+        let reason = '';
+        let excludeReason = '';
+        let detailsHtml = '';
+        
+        try {
+            analysisObj = JSON.parse(article.analysis_result || '{}');
+            passFilter = analysisObj.pass_filter || false;
+            rawScore = analysisObj.raw_score || 0;
+            reason = analysisObj.reason || '';
+            excludeReason = analysisObj.exclude_reason || '';
+            
+            // 构建详细分析显示
+            if (passFilter) {
+                // 通过筛选的论文显示详细信息
+                let coreFeatures = [];
+                let plusFeatures = [];
+                
+                if (analysisObj.core_features) {
+                    Object.entries(analysisObj.core_features).forEach(([key, value]) => {
+                        if (value > 0) {
+                            coreFeatures.push(`${key}: ${value}`);
+                        }
+                    });
+                }
+                
+                if (analysisObj.plus_features) {
+                    Object.entries(analysisObj.plus_features).forEach(([key, value]) => {
+                        if (value > 0) {
+                            plusFeatures.push(`${key}: ${value}`);
+                        }
+                    });
+                }
+                
+                detailsHtml = `
+                    <div class="analysis-details">
+                        <div class="analysis-reason"><strong>评价理由:</strong> ${reason}</div>
+                        ${coreFeatures.length > 0 ? `<div class="analysis-core"><strong>核心特征:</strong> ${coreFeatures.join(', ')}</div>` : ''}
+                        ${plusFeatures.length > 0 ? `<div class="analysis-plus"><strong>加分特征:</strong> ${plusFeatures.join(', ')}</div>` : ''}
+                        <div class="analysis-raw">
+                            <span class="raw-json-toggle" onclick="toggleRawJson('smart-raw-${index}')">查看原始JSON ▼</span>
+                            <div class="raw-json" id="smart-raw-${index}" style="display: none;">
+                                <pre>${JSON.stringify(analysisObj, null, 2)}</pre>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                // 未通过筛选的论文显示排除原因
+                detailsHtml = `
+                    <div class="analysis-details">
+                        <div class="analysis-reason"><strong>排除原因:</strong> ${excludeReason || reason}</div>
+                        <div class="analysis-raw">
+                            <span class="raw-json-toggle" onclick="toggleRawJson('smart-raw-${index}')">查看原始JSON ▼</span>
+                            <div class="raw-json" id="smart-raw-${index}" style="display: none;">
+                                <pre>${JSON.stringify(analysisObj, null, 2)}</pre>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+        } catch (e) {
+            detailsHtml = `<div class="analysis-error">分析结果解析错误: ${article.analysis_result}</div>`;
+        }
+
+        // 设置行样式（通过筛选的论文高亮显示）
+        if (passFilter) {
+            row.classList.add('passed-filter');
+        }
+
+        // 构建行HTML
+        let rowHTML = `
+            <td class="number-cell">${index + 1}</td>
+            <td class="filter-cell">
+                <span class="filter-result ${passFilter ? 'passed' : 'rejected'}">
+                    ${passFilter ? '✅' : '❌'}
+                </span>
+            </td>
+            <td class="score-cell">
+                <div class="score-display">
+                    <span class="score-values">${rawScore}</span>
+                </div>
+            </td>
+            <td class="details-cell">
+                ${detailsHtml}
+            </td>
+            <td class="title-cell">
+                <div class="title-content">${article.title}</div>
+                <div class="title-link">
+                    <a href="${convertToPdfLink(article.link)}" target="_blank">查看链接</a>
+                </div>
+            </td>
+            <td class="authors-cell">
+                <div class="authors-content" id="smart-authors-${index}">
+                    ${article.authors}
+                </div>
+                ${article.authors && article.authors.length > 120 ? `<span class="authors-toggle" onclick="toggleAuthors('smart-authors-${index}')">展开/收起</span>` : ''}
+            </td>
+        `;
+        
+        // 机构列：使用与普通分析相同的渲染逻辑
+        rowHTML += renderSmartSearchAffiliationsCell(article.author_affiliation, article, index);
+        
+        // 添加摘要列（始终最后）
+        rowHTML += `
+            <td class="abstract-cell">
+                <div class="abstract-content" id="smart-abstract-${index}">
+                    ${article.abstract}
+                </div>
+                <span class="abstract-toggle" onclick="toggleAbstract('smart-abstract-${index}')">
+                    展开/收起
+                </span>
+            </td>
+        `;
+        
+        row.innerHTML = rowHTML;
+        tableBody.appendChild(row);
+    });
+}
+
+/**
+ * 智能搜索的机构信息渲染（与普通分析保持一致）
+ */
+function renderSmartSearchAffiliationsCell(affiliationData, article, index) {
+    if (!affiliationData || affiliationData === "") {
+        // 若筛选通过但机构为空，提供按钮
+        try {
+            const parsed = JSON.parse(article.analysis_result || '{}');
+            if (parsed && parsed.pass_filter) {
+                // 与"查看链接"一致的样式
+                return `<td class="affiliations-cell">
+                    <div class="title-link"><a href="javascript:void(0)" onclick="fetchSmartSearchAffiliations(${article.paper_id}, '${article.link}', ${index})">获取作者机构</a></div>
+                </td>`;
+            }
+        } catch (e) {}
+        return `<td class="affiliations-cell"><div class="affiliations-empty">暂无机构信息</div></td>`;
+    }
+    
+    try {
+        // 尝试解析JSON格式的机构数据
+        let affiliations = [];
+        if (typeof affiliationData === 'string') {
+            if (affiliationData.startsWith('[') && affiliationData.endsWith(']')) {
+                affiliations = JSON.parse(affiliationData);
+            } else {
+                // 如果不是JSON格式，将字符串按行分割
+                affiliations = affiliationData.split('\n').filter(line => line.trim());
+            }
+        } else if (Array.isArray(affiliationData)) {
+            affiliations = affiliationData;
+        }
+        
+        if (affiliations.length === 0) {
+            return `<td class="affiliations-cell"><div class="affiliations-empty">未找到机构信息</div></td>`;
+        }
+        
+        // 构建机构列表HTML
+        const affiliationsHTML = affiliations.map((affiliation, index) => 
+            `<div class="affiliation-item" title="${affiliation}">
+                <span class="affiliation-number">${index + 1}.</span>
+                <span class="affiliation-text">${affiliation}</span>
+            </div>`
+        ).join('');
+        
+        return `<td class="affiliations-cell">
+            <div class="affiliations-content">
+                <div class="affiliations-count">${affiliations.length} 个机构</div>
+                <div class="affiliations-list">
+                    ${affiliationsHTML}
+                </div>
+            </div>
+        </td>`;
+        
+    } catch (error) {
+        console.error('解析智能搜索机构信息失败:', error);
+        return `<td class="affiliations-cell"><div class="affiliations-error">机构信息格式错误</div></td>`;
+    }
+}
+
+/**
+ * 智能搜索获取作者机构
+ */
+async function fetchSmartSearchAffiliations(paperId, link, index) {
+    const buttonSelector = `[onclick*="fetchSmartSearchAffiliations(${paperId}"]`;
+    
+    try {
+        // 立即显示loading状态
+        const buttonElement = document.querySelector(buttonSelector);
+        if (buttonElement) {
+            buttonElement.style.pointerEvents = 'none';
+            buttonElement.textContent = '获取中...';
+            buttonElement.style.color = '#999';
+        }
+        
+        // 显示全局loading
+        showOverlayLoading();
+        
+        console.log(`智能搜索开始获取作者机构: paper_id=${paperId}, link=${link}`);
+        const startTime = Date.now();
+        
+        const resp = await fetch('/api/fetch_affiliations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ paper_id: paperId, link })
+        });
+        
+        const data = await resp.json();
+        const endTime = Date.now();
+        const elapsedSeconds = Math.round((endTime - startTime)/1000);
+        console.log(`智能搜索获取作者机构完成，耗时: ${endTime - startTime}ms`, data);
+        
+        if (resp.ok) {
+            if (data.success) {
+                // 成功获取机构信息
+                updateSmartSearchSingleRowAffiliation(index, data.affiliations);
+                showSuccess(`已更新作者机构 (耗时 ${elapsedSeconds}s)`);
+            } else {
+                // API调用成功但未获取到机构信息
+                console.warn('智能搜索未获取到机构信息:', data.error);
+                updateSmartSearchSingleRowAffiliation(index, []); // 显示空机构信息
+                showError(data.error || '未获取到机构信息');
+            }
+        } else {
+            // HTTP错误
+            showError(data.error || '获取作者机构失败');
+        }
+    } catch (e) {
+        showError('网络错误，获取作者机构失败');
+        console.error(e);
+    } finally {
+        // 恢复按钮状态
+        const buttonElement = document.querySelector(buttonSelector);
+        if (buttonElement) {
+            buttonElement.style.pointerEvents = 'auto';
+            buttonElement.style.color = '';
+        }
+        hideOverlayLoading();
+    }
+}
+
+/**
+ * 更新智能搜索单行的机构信息
+ */
+function updateSmartSearchSingleRowAffiliation(rowIndex, affiliations) {
+    const tableBody = document.getElementById('tableBody');
+    if (!tableBody) {
+        console.error('找不到tableBody元素');
+        return;
+    }
+    
+    const rows = tableBody.querySelectorAll('tr');
+    if (rowIndex >= rows.length) {
+        console.error(`行索引${rowIndex}超出范围，共${rows.length}行`);
+        return;
+    }
+    
+    const targetRow = rows[rowIndex];
+    const affiliationCell = targetRow.querySelector('.affiliations-cell');
+    if (!affiliationCell) return;
+    
+    // 构建机构信息HTML
+    if (affiliations && affiliations.length > 0) {
+        const affiliationsHTML = affiliations.map((affiliation, index) => 
+            `<div class="affiliation-item" title="${affiliation}">
+                <span class="affiliation-number">${index + 1}.</span>
+                <span class="affiliation-text">${affiliation}</span>
+            </div>`
+        ).join('');
+        
+        affiliationCell.innerHTML = `
+            <div class="affiliations-content">
+                <div class="affiliations-count">${affiliations.length} 个机构</div>
+                <div class="affiliations-list">
+                    ${affiliationsHTML}
+                </div>
+            </div>
+        `;
+    } else {
+        // 空机构信息，但不再显示"获取作者机构"按钮
+        affiliationCell.innerHTML = '<div class="affiliations-empty">未找到机构信息</div>';
+    }
+}
+
+/**
+ * 清空上一次分析结果的状态显示
+ */
+function clearPreviousAnalysisResults() {
+    console.log('🧹 清空上一次分析结果状态');
+    
+    // 清空进度条
+    const progressBarFill = document.getElementById('progressBarFill');
+    if (progressBarFill) {
+        progressBarFill.style.width = '0%';
+    }
+    
+    // 清空进度文本
+    const progressText = document.getElementById('progressText');
+    if (progressText) {
+        progressText.textContent = '准备开始分析...';
+    }
+    
+    // 清空当前论文信息
+    const currentTitle = document.getElementById('currentTitle');
+    if (currentTitle) {
+        currentTitle.textContent = '等待分析开始...';
+    }
+    
+    const currentAuthors = document.getElementById('currentAuthors');
+    if (currentAuthors) {
+        currentAuthors.textContent = '';
+    }
+    
+    const currentAbstract = document.getElementById('currentAbstract');
+    if (currentAbstract) {
+        currentAbstract.textContent = '';
+    }
+    
+    const currentAnalysis = document.getElementById('currentAnalysis');
+    if (currentAnalysis) {
+        currentAnalysis.textContent = '';
+    }
+    
+    // 清空分析汇总
+    const analysisSummary = document.getElementById('analysisSummary');
+    if (analysisSummary) {
+        analysisSummary.style.display = 'none';
+    }
+    
+    const summaryText = document.getElementById('summaryText');
+    if (summaryText) {
+        summaryText.textContent = '';
+    }
+}
+
+// 确保智能搜索函数在全局作用域可用
+window.fetchSmartSearchAffiliations = fetchSmartSearchAffiliations;
+window.sortSmartSearchTable = sortSmartSearchTable;
+window.clearPreviousAnalysisResults = clearPreviousAnalysisResults;

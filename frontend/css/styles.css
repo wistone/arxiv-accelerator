@@ -694,7 +694,7 @@ body {
 }
 
 .authors-content {
-    max-height: 75px; /* 约5行的高度 */
+    max-height: 56px; /* 约4行的高度 (14px * 1.4 * 4 = 78.4px, 取56px稍小一些确保4行) */
     overflow: hidden;
     position: relative;
     line-height: 1.4;

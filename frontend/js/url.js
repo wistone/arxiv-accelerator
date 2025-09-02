@@ -21,7 +21,7 @@ function parseUrlParams() {
 
 /**
  * 更新URL状态，不刷新页面
- * @param {string} action - 动作类型: 'search', 'analysis', 或 'smart_search'
+ * @param {string} action - 动作类型: 'search', 'analysis', 'smart_search', 或 'smart_search_analysis'
  * @param {string} date - 日期
  * @param {string} category - 分类
  * @param {string} limit - 分析限制 (可选): 'top5', 'top10', 'top20', 'all'
@@ -50,8 +50,8 @@ function updateUrlState(action, date = null, category = null, limit = null, cont
     const state = { action, date, category, limit, content, filter };
     window.history.pushState(state, '', newUrl);
     
-    const logMsg = action === 'smart_search' 
-        ? `🔗 URL状态已更新: ${action} - 内容长度: ${content?.length || 0}${filter ? ` - 筛选: ${filter}` : ''}`
+    const logMsg = (action === 'smart_search' || action === 'smart_search_analysis')
+        ? `🔗 URL状态已更新: ${action} - 内容长度: ${content?.length || 0}${filter ? ` - 筛选: ${filter}` : ''}${limit ? ` - ${limit}` : ''}`
         : `🔗 URL状态已更新: ${action} - ${date} - ${category}${limit ? ` - ${limit}` : ''}`;
     console.log(logMsg);
 }
@@ -70,8 +70,8 @@ async function executeFromUrlParams(params) {
         return;
     }
     
-    // 对于智能搜索，不需要date参数
-    if (action !== 'smart_search' && !date) {
+    // 对于智能搜索和智能搜索分析，不需要date参数
+    if (action !== 'smart_search' && action !== 'smart_search_analysis' && !date) {
         console.log('📋 URL中没有有效的操作参数（缺少date），使用默认状态');
         return;
     }
@@ -110,6 +110,10 @@ async function executeFromUrlParams(params) {
         console.log('🔍 检测到智能搜索action，准备执行');
         // 执行智能搜索
         await executeSmartSearchFromUrl(params);
+    } else if (action === 'smart_search_analysis') {
+        console.log('📊 检测到智能搜索分析action，准备执行');
+        // 执行智能搜索分析
+        await executeSmartSearchAnalysisFromUrl(params);
     } else if (action === 'analysis') {
         // 从 URL 直接访问时，只显示数据库中的结果，不触发新的分析
         console.log('📖 从 URL 访问分析结果，仅加载数据库中的结果');
@@ -378,4 +382,111 @@ function applyDateFilterFromUrl(filterString) {
  */
 function updateSmartSearchUrlState(content, filter = 'all') {
     updateUrlState('smart_search', null, null, null, content, filter);
+}
+
+/**
+ * 更新智能搜索分析的URL状态
+ * @param {string} content - 搜索内容
+ * @param {string} limit - 分析限制: 'top5', 'top10', 'top20', 'full'
+ * @param {string} filter - 当前筛选状态 (可选)
+ */
+function updateSmartSearchAnalysisUrlState(content, limit, filter = 'all') {
+    updateUrlState('smart_search_analysis', null, null, limit, content, filter);
+}
+
+/**
+ * 从URL执行智能搜索分析
+ * @param {Object} params - URL参数对象
+ */
+async function executeSmartSearchAnalysisFromUrl(params) {
+    const { content, filter, limit } = params;
+    
+    if (!content) {
+        console.log('📋 URL中没有智能搜索内容');
+        return;
+    }
+    
+    // 等待DOM完全加载
+    await new Promise(resolve => {
+        if (document.readyState === 'complete') {
+            resolve();
+        } else {
+            window.addEventListener('load', resolve);
+        }
+    });
+    
+    try {
+        // 解码Base64内容（URLSearchParams已经处理了URL解码）
+        const decodedContent = decodeURIComponent(escape(atob(content)));
+        
+        // 设置搜索内容到输入框
+        const smartSearchInput = document.getElementById('smartSearchInput');
+        if (smartSearchInput) {
+            smartSearchInput.value = decodedContent;
+        }
+        
+        // 先执行智能搜索以获取论文列表
+        if (typeof startSmartSearch !== 'undefined') {
+            console.log('🚀 开始执行智能搜索');
+            await startSmartSearch();
+            
+            // 等待搜索完成，然后检查是否有分析结果
+            let retryCount = 0;
+            const maxRetries = 10;
+            
+            const checkAndLoadResults = async () => {
+                console.log(`🔍 检查智能搜索结果状态 (尝试 ${retryCount + 1}/${maxRetries})`);
+                
+                // 应用日期筛选（如果有）
+                if (filter && filter !== 'all') {
+                    console.log('📅 应用日期筛选:', filter);
+                    applyDateFilterFromUrl(filter);
+                }
+                
+                // 检查当前是否有智能搜索结果
+                if (window.smartSearchState && window.smartSearchState.currentResults && window.smartSearchState.currentResults.articles) {
+                    console.log('📊 智能搜索完成，开始加载分析结果，范围:', limit, '论文数:', window.smartSearchState.currentResults.articles.length);
+                    
+                    // 直接加载已有的分析结果
+                    if (typeof loadSmartSearchAnalysisResults !== 'undefined') {
+                        try {
+                            await loadSmartSearchAnalysisResults();
+                            console.log('✅ 智能搜索分析结果加载完成');
+                        } catch (error) {
+                            console.error('❌ 加载分析结果失败:', error);
+                        }
+                    } else {
+                        console.log('⚠️ loadSmartSearchAnalysisResults 函数不可用');
+                    }
+                } else {
+                    console.log('⚠️ 智能搜索状态未准备好，当前状态:', {
+                        hasSmartSearchState: !!window.smartSearchState,
+                        hasCurrentResults: !!(window.smartSearchState && window.smartSearchState.currentResults),
+                        hasArticles: !!(window.smartSearchState && window.smartSearchState.currentResults && window.smartSearchState.currentResults.articles)
+                    });
+                    
+                    // 如果还没有准备好且重试次数未超限，继续等待
+                    if (retryCount < maxRetries) {
+                        retryCount++;
+                        setTimeout(checkAndLoadResults, 500); // 每500ms检查一次
+                    } else {
+                        console.log('❌ 达到最大重试次数，无法加载分析结果');
+                    }
+                }
+            };
+            
+            // 给智能搜索一些时间完成，然后开始检查
+            setTimeout(checkAndLoadResults, 1000);
+        } else {
+            console.log('⚠️ startSmartSearch 函数不可用');
+        }
+        
+    } catch (error) {
+        console.error('解析智能搜索分析URL参数失败:', error);
+        if (typeof showError === 'function') {
+            showError('⚠️ URL参数解析失败，请重新搜索');
+        } else {
+            console.error('showError函数不可用，错误:', error.message);
+        }
+    }
 }

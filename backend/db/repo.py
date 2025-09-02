@@ -652,6 +652,86 @@ def get_analysis_results(
     return articles
 
 
+def get_analysis_results_by_ids(*, paper_ids: List[int], prompt_id: str) -> List[Dict[str, Any]]:
+    """基于paper_ids列表获取分析结果（智能搜索专用）
+    
+    Args:
+        paper_ids: 论文ID列表
+        prompt_id: 提示词ID
+        
+    Returns:
+        包含分析结果和论文元数据的字典列表
+    """
+    db = app_schema()
+    
+    if not paper_ids:
+        return []
+    
+    # 1) 获取论文基本信息
+    papers_map: Dict[int, Dict[str, Any]] = {}
+    chunk_size = 1000
+    
+    for i in range(0, len(paper_ids), chunk_size):
+        chunk = paper_ids[i:i + chunk_size]
+        rows = (
+            db.from_("papers")
+            .select("paper_id, arxiv_id, title, authors, abstract, link, author_affiliation, update_date")
+            .in_("paper_id", chunk)
+            .execute().data
+        )
+        for row in rows:
+            papers_map[row["paper_id"]] = row
+    
+    # 2) 获取分析结果
+    analysis_map: Dict[int, Dict[str, Any]] = {}
+    for i in range(0, len(paper_ids), chunk_size):
+        chunk = paper_ids[i:i + chunk_size]
+        rows = (
+            db.from_("analysis_results")
+            .select("paper_id, analysis_result, raw_score, norm_score")
+            .eq("prompt_id", prompt_id)
+            .in_("paper_id", chunk)
+            .execute().data
+        )
+        for row in rows:
+            analysis_map[row["paper_id"]] = row
+    
+    # 3) 组装结果 - 按paper_ids的顺序返回，只包含有分析结果的论文
+    results: List[Dict[str, Any]] = []
+    for paper_id in paper_ids:
+        paper = papers_map.get(paper_id)
+        analysis = analysis_map.get(paper_id)
+        
+        if paper and analysis:
+            # 解析分析结果判断是否通过筛选
+            pass_filter = False
+            try:
+                if analysis["analysis_result"]:
+                    analysis_data = analysis["analysis_result"]
+                    if isinstance(analysis_data, str):
+                        analysis_data = json.loads(analysis_data)
+                    pass_filter = analysis_data.get("pass_filter", False)
+            except (json.JSONDecodeError, TypeError, KeyError):
+                pass_filter = False
+            
+            results.append({
+                "paper_id": paper_id,
+                "arxiv_id": paper.get("arxiv_id", ""),
+                "title": paper.get("title", ""),
+                "authors": paper.get("authors", ""),
+                "abstract": paper.get("abstract", ""),
+                "link": paper.get("link", ""),
+                "author_affiliation": paper.get("author_affiliation", ""),
+                "update_date": paper.get("update_date", ""),
+                "analysis_result": json.dumps(analysis["analysis_result"], ensure_ascii=False, separators=(",", ":")) if analysis["analysis_result"] else "",
+                "raw_score": analysis.get("raw_score"),
+                "norm_score": analysis.get("norm_score"),
+                "pass_filter": pass_filter
+            })
+    
+    return results
+
+
 def _parse_ingest_time(timestamp_str: str) -> datetime:
     """解析ingest_at时间戳，处理超过6位精度的微秒"""
     from datetime import datetime
@@ -1246,6 +1326,67 @@ def upsert_paper_categories_bulk(pairs: List[Tuple[int, int]]) -> None:
                 except Exception:
                     # 忽略重复错误
                     pass
+
+
+def count_analyzed_papers_by_ids(paper_ids: List[int], prompt_id: str) -> int:
+    """统计指定paper_ids中已分析的数量（智能搜索用）"""
+    if not paper_ids:
+        return 0
+        
+    db = app_schema()
+    
+    # 查询已分析的数量
+    result = (
+        db.from_("analysis_results")
+        .select("paper_id", count="exact")
+        .in_("paper_id", paper_ids)
+        .eq("prompt_id", prompt_id)
+        .execute()
+    )
+    
+    return result.count or 0
+
+
+def get_unanalyzed_papers_by_ids(paper_ids: List[int], prompt_id: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+    """获取指定paper_ids中未分析的论文数据（智能搜索用）"""
+    if not paper_ids:
+        return []
+        
+    db = app_schema()
+    
+    # 获取所有论文基本信息（不应用limit）
+    papers = (
+        db.from_("papers")
+        .select("paper_id, arxiv_id, title, abstract, link, authors")
+        .in_("paper_id", paper_ids)
+        .order("update_date", desc=True)  # 按更新时间倒序
+        .execute().data
+    )
+    
+    # 获取已分析的paper_ids
+    analyzed = (
+        db.from_("analysis_results")
+        .select("paper_id")
+        .in_("paper_id", paper_ids)
+        .eq("prompt_id", prompt_id)
+        .execute()
+        .data
+    )
+    analyzed_ids = {row["paper_id"] for row in analyzed}
+    
+    # 过滤出未分析的论文
+    unanalyzed = [
+        paper for paper in papers 
+        if paper["paper_id"] not in analyzed_ids
+    ]
+    
+    # 应用limit到未分析的论文列表
+    if limit and len(unanalyzed) > limit:
+        unanalyzed = unanalyzed[:limit]
+    
+    print(f"📊 [智能搜索分析] 总共 {len(paper_ids)} 篇论文，已分析 {len(analyzed_ids)} 篇，待分析 {len(unanalyzed)} 篇")
+    
+    return unanalyzed
 
 
 

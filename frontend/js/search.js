@@ -39,10 +39,25 @@ async function searchArticles() {
             
             displayArticles(data.articles);
             updateStats(data.articles);
-            showSuccess(`成功加载 ${selectedDate} 的文章数据，共 ${data.total} 篇文章`);
+            showSuccess(`日期分类筛选完成！成功加载 ${selectedDate} 的文章数据，共 ${data.total} 篇文章`);
             
-            // 启用分析按钮
+            // 启用普通分析按钮
             document.getElementById('analyzeBtn').disabled = false;
+            
+            // 禁用和隐藏智能搜索相关按钮
+            const smartAnalyzeBtn = document.getElementById('smartAnalyzeBtn');
+            if (smartAnalyzeBtn) {
+                smartAnalyzeBtn.disabled = true;
+                smartAnalyzeBtn.style.display = 'none';
+            }
+            
+            
+            // 重置智能搜索状态
+            if (window.smartSearchState) {
+                window.smartSearchState.currentResults = null;
+                window.smartSearchState.isAnalyzing = false;
+                window.smartSearchState.currentAnalysisTask = null;
+            }
             
             // 切换到搜索模式（标准宽度）
             setSearchMode();

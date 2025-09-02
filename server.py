@@ -310,12 +310,29 @@ def check_analysis_exists():
             return jsonify({'error': '缺少 prompt: multi-modal-llm'}), 500
 
         status = db_repo.get_analysis_status(selected_date, selected_category, prompt_id)
+        
+        # 计算可用的分析选项
+        total_papers = status['total']
+        analyzed_count = status['completed']
+        pending_count = status['pending']
+        
+        available_options = []
+        if pending_count > 0:
+            available_options.append('full')
+        if total_papers >= 5 and analyzed_count < 5:
+            available_options.append('top5')
+        if total_papers >= 10 and analyzed_count < 10:
+            available_options.append('top10')
+        if total_papers >= 20 and analyzed_count < 20:
+            available_options.append('top20')
+        
         resp = {
             'exists': status['completed'] > 0,
             'total': status['total'],
             'completed': status['completed'],
             'pending': status['pending'],
-            'all_analyzed': status['completed'] >= status['total'] and status['total'] > 0
+            'all_analyzed': status['completed'] >= status['total'] and status['total'] > 0,
+            'available_options': available_options
         }
         return jsonify(resp)
     except Exception as e:
@@ -671,10 +688,16 @@ def run_concurrent_analysis_task(task_id, pending_papers, selected_date, selecte
 def analysis_progress_stream():
     """Server-Sent Events流，用于实时获取分析进度"""
     # 在请求上下文中获取参数
+    custom_task_id = request.args.get('task_id')  # 支持智能搜索的自定义task_id
     date = request.args.get('date')
     category = request.args.get('category', 'cs.CV')
     task_type = request.args.get('type', 'serial')  # serial or concurrent
-    if task_type == 'concurrent':
+    
+    if custom_task_id:
+        # 智能搜索分析：使用自定义task_id
+        task_id = custom_task_id
+    elif task_type == 'concurrent':
+        # 普通分析：构建基于日期分类的task_id
         task_id = f"{date}-{category}-concurrent"
     else:
         task_id = f"{date}-{category}"
@@ -826,6 +849,44 @@ def get_analysis_results():
     except Exception as e:
         return jsonify({'error': f'服务器错误: {str(e)}'}), 500
 
+@app.route('/api/get_analysis_results_by_ids', methods=['POST'])
+def get_analysis_results_by_ids():
+    """获取智能搜索分析结果（基于paper_ids）"""
+    try:
+        data = request.get_json()
+        paper_ids = data.get('paper_ids', [])
+        
+        if not paper_ids:
+            return jsonify({'error': '请提供有效的paper_ids'}), 400
+        
+        # 从数据库获取分析结果
+        try:
+            prompt_id = db_repo.get_prompt_id_by_name("multi-modal-llm") or db_repo.get_prompt_id_by_name("system_default")
+            if not prompt_id:
+                return jsonify({'error': '缺少 prompt: multi-modal-llm'}), 500
+            
+            results = db_repo.get_analysis_results_by_ids(paper_ids=paper_ids, prompt_id=prompt_id)
+            
+            if len(results) > 0:
+                return jsonify({
+                    'success': True,
+                    'results': results,
+                    'total': len(results)
+                })
+            else:
+                return jsonify({
+                    'success': True, 
+                    'results': [], 
+                    'total': 0
+                })
+                
+        except Exception as e:
+            print(f"从DB读取智能搜索分析结果失败: {e}")
+            return jsonify({'error': f'读取分析结果失败: {str(e)}'}), 500
+        
+    except Exception as e:
+        return jsonify({'error': f'服务器错误: {str(e)}'}), 500
+
 # def parse_analysis_fail_file(filepath):
 #     """⚠️ 已废弃：解析分析失败markdown文件（已改用数据库）"""
 
@@ -861,6 +922,133 @@ def get_ingest_batches():
         
     except Exception as e:
         return jsonify({'error': f'获取批次信息失败: {str(e)}'}), 500
+
+@app.route('/api/check_analysis_exists_by_ids', methods=['POST'])
+def check_analysis_exists_by_ids():
+    """检查指定paper_ids的分析状态（智能搜索用）"""
+    try:
+        data = request.get_json()
+        paper_ids = data.get('paper_ids', [])
+        
+        if not paper_ids:
+            return jsonify({'error': '请提供paper_ids列表'}), 400
+        
+        # 固定 prompt：优先按名称 multi-modal-llm 找到 UUID
+        prompt_id = db_repo.get_prompt_id_by_name('multi-modal-llm')
+        if not prompt_id:
+            return jsonify({'error': '缺少 prompt: multi-modal-llm'}), 500
+        
+        # 查询这些论文的分析状态
+        total_papers = len(paper_ids)
+        analyzed_count = db_repo.count_analyzed_papers_by_ids(paper_ids, prompt_id)
+        pending_count = total_papers - analyzed_count
+        
+        # 计算可用的分析选项
+        available_options = []
+        if pending_count > 0:
+            available_options.append('full')
+        if total_papers >= 5 and analyzed_count < 5:
+            available_options.append('top5')
+        if total_papers >= 10 and analyzed_count < 10:
+            available_options.append('top10')
+        if total_papers >= 20 and analyzed_count < 20:
+            available_options.append('top20')
+        
+        resp = {
+            'exists': analyzed_count > 0,
+            'total': total_papers,
+            'completed': analyzed_count,
+            'pending': pending_count,
+            'all_analyzed': analyzed_count >= total_papers and total_papers > 0,
+            'available_options': available_options
+        }
+        return jsonify(resp)
+    except Exception as e:
+        return jsonify({'error': f'检查进度失败: {str(e)}'}), 500
+
+@app.route('/api/analyze_papers_by_ids', methods=['POST'])
+def analyze_papers_by_ids():
+    """基于paper_ids启动论文分析（智能搜索用）"""
+    try:
+        data = request.get_json()
+        paper_ids = data.get('paper_ids', [])
+        range_type = data.get('range_type', 'full')
+        workers = data.get('workers', 5)
+        
+        if not paper_ids:
+            return jsonify({'error': '请提供paper_ids列表'}), 400
+        
+        # prompt: multi-modal-llm
+        prompt_id = db_repo.get_prompt_id_by_name('multi-modal-llm')
+        if not prompt_id:
+            return jsonify({'error': '缺少 prompt: multi-modal-llm'}), 500
+        
+        # 任务互斥：使用paper_ids哈希作为task_id
+        import hashlib
+        ids_hash = hashlib.md5(','.join(map(str, sorted(paper_ids))).encode()).hexdigest()[:8]
+        task_id = f"smart-search-{ids_hash}"
+        
+        with analysis_lock:
+            if analysis_progress.get(task_id, {}).get('status') in ('starting','processing'):
+                return jsonify({'success': True, 'task_id': task_id, 'message': '已有任务在运行，返回其进度'}), 200
+        
+        # 计算目标数量与补齐需求
+        target_map = {'top5': 5, 'top10': 10, 'top20': 20}
+        target_n = target_map.get(range_type)
+        
+        # 获取未分析的论文
+        total_papers = len(paper_ids)
+        analyzed_count = db_repo.count_analyzed_papers_by_ids(paper_ids, prompt_id)
+        pending_count = total_papers - analyzed_count
+        
+        if target_n is not None:
+            if analyzed_count >= target_n:
+                return jsonify({'success': True, 'task_id': task_id, 'message': '已达到目标数量，无需再次分析'}), 200
+            need = min(target_n - analyzed_count, pending_count)
+        else:
+            # full：对全部 pending
+            need = pending_count
+        
+        if need <= 0:
+            return jsonify({
+                'success': True, 
+                'task_id': task_id, 
+                'message': f'所有论文已分析完成，共{total_papers}篇（已分析{analyzed_count}篇）',
+                'all_analyzed': True,  # 标记所有论文都已分析完成
+                'total_papers': total_papers,
+                'analyzed_count': analyzed_count,
+                'pending_count': pending_count
+            }), 200
+        
+        # 获取未分析的论文数据
+        pending_papers = db_repo.get_unanalyzed_papers_by_ids(paper_ids, prompt_id, limit=need)
+        if not pending_papers:
+            return jsonify({
+                'success': True, 
+                'task_id': task_id, 
+                'message': '无待分析论文',
+                'all_analyzed': True,  # 标记所有论文都已分析完成
+                'total_papers': total_papers
+            }), 200
+        
+        # 启动后台并发分析任务
+        thread = threading.Thread(
+            target=run_smart_search_analysis_task,
+            args=(task_id, pending_papers, prompt_id, workers)
+        )
+        thread.daemon = True
+        thread.start()
+        
+        return jsonify({
+            'success': True,
+            'task_id': task_id,
+            'total_papers': total_papers,
+            'pending_count': need,
+            'message': f'开始分析 {need} 篇论文'
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'启动分析失败: {str(e)}'}), 500
 
 @app.route('/api/clear_cache', methods=['POST'])
 def clear_cache():
@@ -938,6 +1126,58 @@ def handle_smart_search():
             'status': 'error',
             'message': f'服务器内部错误: {str(e)}'
         }), 500
+
+
+def run_smart_search_analysis_task(task_id, pending_papers, prompt_id, workers=5):
+    """运行智能搜索分析任务"""
+    import traceback
+    try:
+        # 初始化进度跟踪
+        with analysis_lock:
+            analysis_progress[task_id] = {
+                'current': 0,
+                'total': len(pending_papers),
+                'status': 'starting',
+                'paper': None,
+                'analysis_result': None,
+                'workers': workers,
+                'start_time': time.time(),
+                'source': 'smart_search'  # 标识来源
+            }
+
+        # 读取system prompt
+        system_prompt = db_repo.get_system_prompt()
+
+        print(f"🚀 [智能搜索分析] 启动任务 {task_id}，{workers}路并发，总计 {len(pending_papers)} 篇论文")
+
+        # 使用并发分析服务
+        from backend.services.concurrent_analysis_service import get_concurrent_service
+        concurrent_service = get_concurrent_service(workers=workers)
+
+        # 启动并发分析
+        final_stats = concurrent_service.analyze_papers_concurrent(
+            task_id=task_id,
+            pending_papers=pending_papers,
+            prompt_id=prompt_id,
+            system_prompt=system_prompt,
+            progress_tracker=analysis_progress,
+            update_progress_callback=None
+        )
+
+        print(f"🎉 [智能搜索分析] 任务 {task_id} 完成！统计: {final_stats}")
+
+    except Exception as e:
+        print(f"❌ [智能搜索分析] 任务 {task_id} 失败: {e}")
+        traceback.print_exc()
+        
+        # 更新进度状态为错误
+        with analysis_lock:
+            if task_id in analysis_progress:
+                analysis_progress[task_id].update({
+                    'status': 'error',
+                    'error_message': str(e)
+                })
+
 
 if __name__ == '__main__':
     import sys
