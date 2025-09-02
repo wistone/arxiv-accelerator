@@ -48,9 +48,17 @@ Frontend (HTML/CSS/JS) → Flask Backend → Supabase/PostgreSQL → External AP
 - `repo.py`: Data access layer with optimized queries and batch operations
 
 **Frontend** (`frontend/`):
-- Modular JavaScript architecture with separate files for search, analysis, progress tracking
-- Real-time updates via Server-Sent Events (SSE)
-- Responsive design supporting desktop and mobile
+- **Modular JavaScript architecture**: 
+  - `search.js`: Standard date/category search functionality
+  - `smart-search.js`: Smart search using arXiv IDs from text
+  - `analysis.js`: Analysis result display and management  
+  - `progress.js`: Real-time SSE progress tracking
+  - `url.js`: URL state management for shareable analysis links
+  - `table.js`: Dynamic table rendering and sorting
+  - `ui.js`: UI components and modal management
+- **Real-time updates**: Server-Sent Events (SSE) with fallback mechanisms
+- **State management**: URL-based state for shareable analysis sessions
+- **Responsive design**: Desktop and mobile optimized interface
 
 ### Database Design
 Core tables: `papers`, `categories`, `paper_categories`, `prompts`, `analysis_results`
@@ -65,11 +73,23 @@ Core tables: `papers`, `categories`, `paper_categories`, `prompts`, `analysis_re
 - Pass threshold: standardized score ≥ 4
 
 ## Key APIs
-- `POST /api/search_articles`: Import papers from arXiv
+
+### Standard Search & Analysis
+- `POST /api/search_articles`: Import papers from arXiv by date/category
 - `POST /api/analyze_papers`: Start AI analysis tasks (supports top5/10/20/full ranges)
-- `GET /api/analysis_progress`: Real-time SSE progress updates
 - `POST /api/get_analysis_results`: Retrieve analysis results
+- `POST /api/check_analysis_exists`: Check analysis status for date/category
+
+### Smart Search & Analysis
+- `POST /api/smart_search`: Import papers from arXiv using text with arXiv IDs
+- `POST /api/analyze_papers_by_ids`: Start analysis for specific paper IDs
+- `POST /api/get_analysis_results_by_ids`: Retrieve results for specific paper IDs
+- `POST /api/check_analysis_exists_by_ids`: Check analysis status for paper IDs
+
+### Real-time Progress & Utilities
+- `GET /api/analysis_progress`: Real-time SSE progress updates (supports task_id parameter)
 - `POST /api/fetch_affiliations`: Extract author institutions from PDFs
+- `GET /api/available_dates`: Get available paper dates for date picker
 
 ## Configuration
 Environment variables (copy from `env.example`):
@@ -77,12 +97,32 @@ Environment variables (copy from `env.example`):
 - `DOUBAO_API_KEY`, `DOUBAO_MODEL`: AI model configuration
 - `PORT`: Server port (default 8080, auto-detected on Render)
 
+## Core Features
+
+### Search Modes
+1. **Standard Search**: Query by date and category (cs.CV, cs.LG, cs.AI)
+2. **Smart Search**: Extract arXiv IDs from text content (supports copy-paste from papers/websites)
+
+### Analysis Features
+- **Incremental Analysis**: Only analyzes unprocessed papers
+- **Flexible Scope**: Support for top5/top10/top20/full analysis ranges
+- **Real-time Progress**: Live updates with concurrent processing status
+- **Author Affiliations**: Automatic PDF extraction for approved papers
+- **Result Caching**: Multi-level caching prevents duplicate work
+
+### User Experience
+- **URL State Management**: Shareable analysis sessions via URLs
+- **Responsive Tables**: Sortable columns with expand/collapse details
+- **Excel-style Filtering**: Column-based date filtering for smart search results
+- **Progress Tracking**: Real-time SSE updates with fallback mechanisms
+
 ## Development Workflow
 1. Papers are imported from arXiv API and stored with duplicate detection
 2. AI analysis runs incrementally (only processes unanalyzed papers)
 3. Successful analyses trigger automatic affiliation extraction
 4. Results cached at multiple levels for performance
 5. Frontend displays real-time progress via SSE streams
+6. URL state enables shareable analysis sessions
 
 ## Performance Features
 - Batch database operations (50-100 records per batch)
@@ -90,3 +130,27 @@ Environment variables (copy from `env.example`):
 - Composite database indexes optimized for date/category queries
 - Connection pooling and async processing support
 - Query optimization with 3-5x speed improvements over file-based storage
+
+## Development Notes
+
+### Code Quality
+- Minimal debug logging in production (cleaned up SSE and smart search logs)
+- Modular JavaScript architecture with clear separation of concerns
+- Error handling with user-friendly messages and fallback mechanisms
+
+### Testing & Debugging
+- Use browser developer tools to monitor network requests
+- Server logs provide detailed analysis progress and error information
+- SSE connection status visible in Network tab during analysis
+
+### Common Issues & Solutions
+- **Button appears disabled**: Check analysis status - may already be completed
+- **SSE connection drops**: Fallback polling mechanism auto-activates after 60s
+- **Analysis hangs**: Check server logs for API rate limits or network issues
+- **Missing affiliations**: PDF extraction requires successful analysis first
+
+### Best Practices
+- Always use incremental analysis to avoid duplicate work
+- Monitor server resources during large batch analyses
+- Use appropriate analysis scope (top5/10/20) for testing
+- Keep environment variables secure and up-to-date
