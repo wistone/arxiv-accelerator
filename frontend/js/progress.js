@@ -5,7 +5,6 @@
 function updateProgress(data) {
     const { current, total, paper, analysis_result, status, success_count, error_count, workers, processing_papers, last_completed_paper } = data;
     
-    console.log('updateProgress called with:', data);
     
     // 处理连接状态
     if (status === 'connecting') {
@@ -136,8 +135,6 @@ function startSSEConnection(selectedDate, selectedCategory, testCount, rangeType
         window.AppState.currentEventSource.close();
     }
 
-    console.log('🔌 启动SSE连接...');
-    
     // 清空上一次分析的UI状态
     if (typeof clearPreviousAnalysisResults === 'function') {
         clearPreviousAnalysisResults();
@@ -148,31 +145,23 @@ function startSSEConnection(selectedDate, selectedCategory, testCount, rangeType
     
     // 使用Server-Sent Events获取实时进度 (并发分析类型)
     let url;
-    console.log('🔧 [SSE连接] 参数检查 - taskId:', taskId, '(类型:', typeof taskId, ', 布尔值:', !!taskId, ')');
     if (taskId) {
         // 智能搜索分析：使用自定义task_id
         url = `/api/analysis_progress?task_id=${taskId}&type=concurrent`;
-        console.log('✅ [SSE连接] 使用智能搜索模式，task_id:', taskId);
     } else {
         // 普通分析：使用日期分类参数
         url = `/api/analysis_progress?date=${selectedDate}&category=${selectedCategory}&test_count=${testCount || ''}&type=concurrent`;
-        console.log('✅ [SSE连接] 使用普通分析模式，date/category:', selectedDate, selectedCategory);
     }
-    
-    console.log('📡 SSE连接URL:', url);
     window.AppState.currentEventSource = new EventSource(url);
     
     window.AppState.currentEventSource.onmessage = function(event) {
-        console.log('SSE received:', event.data);
         const data = JSON.parse(event.data);
-        console.log('SSE parsed data:', data);
         updateProgress(data);
         window.AppState.lastProgressUpdate = Date.now();
     };
 
     window.AppState.currentEventSource.onerror = function(event) {
         console.error('SSE连接错误:', event);
-        console.log('🔄 SSE连接中断，等待重新连接...');
         
         // 更新进度显示，但不立即启动故障转移
         const progressText = document.getElementById('progressText');
@@ -186,7 +175,6 @@ function startSSEConnection(selectedDate, selectedCategory, testCount, rangeType
 
     window.AppState.currentEventSource.addEventListener('complete', function(event) {
         const data = JSON.parse(event.data);
-        console.log('✅ 分析完成事件:', data);
         onAnalysisComplete(data);
         stopAllConnections();
     });
@@ -204,8 +192,6 @@ function startProgressFallbackCheck(selectedDate, selectedCategory) {
     if (window.AppState.progressCheckInterval) {
         clearInterval(window.AppState.progressCheckInterval);
     }
-
-    console.log('🔄 启动故障转移进度检查机制...');
     
     // 每15秒检查一次进度（备用机制），减少频繁检查
     window.AppState.progressCheckInterval = setInterval(async () => {
@@ -213,7 +199,6 @@ function startProgressFallbackCheck(selectedDate, selectedCategory) {
             // 检查是否长时间没有收到更新（超过60秒）
             const timeSinceLastUpdate = Date.now() - window.AppState.lastProgressUpdate;
             if (timeSinceLastUpdate > 60000) {
-                console.log('⚠️  长时间无进度更新，使用故障转移检查...');
                 await checkAnalysisStatus(selectedDate, selectedCategory);
             }
         } catch (error) {
@@ -236,12 +221,9 @@ async function checkAnalysisStatus(selectedDate, selectedCategory) {
 
         if (response.ok) {
             const data = await response.json();
-            console.log('📊 故障转移检查状态:', data);
             
             // 只有当所有论文都分析完成时才认为完成
             if (data.all_analyzed && data.total > 0) {
-                console.log('✅ 故障转移检查发现分析已完成!');
-                
                 // 分析已完成，直接跳转到结果页面
                 const completionData = {
                     summary: `分析完成！共处理 ${data.total} 篇论文`,
@@ -252,7 +234,6 @@ async function checkAnalysisStatus(selectedDate, selectedCategory) {
                 stopAllConnections();
             } else {
                 // 分析还在进行中
-                console.log(`📊 故障转移检查：分析仍在进行中... (${data.completed}/${data.total})`);
                 
                 // 更新显示时间信息和进度
                 const elapsed = Math.floor((Date.now() - window.AppState.analysisStartTime) / 1000);
@@ -272,8 +253,6 @@ async function checkAnalysisStatus(selectedDate, selectedCategory) {
                     progressBarFill.style.width = progress + '%';
                 }
             }
-        } else {
-            console.log('📊 故障转移检查失败，继续等待...');
         }
     } catch (error) {
         console.error('故障转移状态检查失败:', error);
@@ -283,14 +262,12 @@ async function checkAnalysisStatus(selectedDate, selectedCategory) {
 function stopAllConnections() {
     // 停止SSE连接
     if (window.AppState.currentEventSource) {
-        console.log('🔌 关闭SSE连接');
         window.AppState.currentEventSource.close();
         window.AppState.currentEventSource = null;
     }
     
     // 停止故障转移检查
     if (window.AppState.progressCheckInterval) {
-        console.log('🔄 关闭故障转移检查');
         clearInterval(window.AppState.progressCheckInterval);
         window.AppState.progressCheckInterval = null;
     }
@@ -307,10 +284,8 @@ async function onAnalysisComplete(data) {
     
     // 检查是否为智能搜索分析
     if (smartSearchState && smartSearchState.currentAnalysisTask) {
-        console.log('🔍 [智能搜索] 分析完成，加载智能搜索结果');
         await loadSmartSearchAnalysisResults();
     } else {
-        console.log('📊 [普通分析] 分析完成，加载普通分析结果');
         // 使用完成的分析范围类型来加载结果
         const completedRangeType = data.completed_range_type || window.AppState.currentAnalysisRange || 'full';
         await loadAnalysisResults(completedRangeType);

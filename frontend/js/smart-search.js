@@ -82,7 +82,7 @@ async function startSmartSearch() {
         // 恢复按钮状态
         smartSearchState.isSearching = false;
         button.disabled = false;
-        button.textContent = '🔍 开始搜索';
+        button.textContent = '🔍 搜索文章列表';
         hideLoading();
     }
 }
@@ -93,8 +93,6 @@ async function startSmartSearch() {
 function handleSmartSearchSuccess(result) {
     const performance = result.performance || {};
     
-    console.log('handleSmartSearchSuccess called with:', result);
-    
     // 保存结果到状态
     smartSearchState.currentResults = result;
     
@@ -102,11 +100,11 @@ function handleSmartSearchSuccess(result) {
     if (result.articles && result.articles.length > 0) {
         displaySmartSearchArticles(result);
         
-        // 显示分析按钮
+        // 显示并启用分析按钮，让用户可以查看分析状态
         const analyzeBtn = document.getElementById('smartAnalyzeBtn');
         if (analyzeBtn) {
             analyzeBtn.style.display = 'inline-block';
-            analyzeBtn.disabled = false;
+            analyzeBtn.disabled = false; // 启用按钮，让用户可以点击查看分析选项
         }
     }
     
@@ -145,8 +143,6 @@ function handleSmartSearchError(errorMessage) {
  * 显示智能搜索文章列表（包含日期列和筛选功能）
  */
 function displaySmartSearchArticles(result) {
-    console.log('displaySmartSearchArticles called with result:', result);
-    
     // 为文章添加序号
     const articlesWithNumbers = result.articles.map((article, index) => ({
         ...article,
@@ -699,7 +695,6 @@ async function analyzeSmartSearchResults() {
         return;
     }
     
-    console.log('📊 开始智能搜索分析，论文数量:', paperIds.length);
     
     // 检查已有分析结果
     try {
@@ -754,35 +749,50 @@ async function analyzeSmartSearchResults() {
                 startBtn.setAttribute('onclick', 'startSmartSearchAnalysis()');
             }
             
+            // 启用主分析按钮，让用户可以查看分析状态或开始分析
+            const mainAnalyzeBtn = document.getElementById('smartAnalyzeBtn');
+            if (mainAnalyzeBtn) {
+                mainAnalyzeBtn.disabled = data.total <= 0;
+            }
+
             // 控制按钮状态：当全部分析完成时，禁用"开始分析"，启用"加载已有分析"
-            if (data.completed >= data.total && data.total > 0) {
-                // 全部分析完成
+            if (data.completed >= data.total && data.total > 0 && data.completed > 0) {
+                // 全部分析完成且有分析结果
                 if (startBtn) {
                     startBtn.disabled = true;
                     startBtn.textContent = '分析已完成';
                 }
                 if (showExistingBtn) {
                     showExistingBtn.style.display = 'inline-block';
+                    showExistingBtn.style.visibility = 'visible';
                     showExistingBtn.disabled = false;
                     showExistingBtn.textContent = '加载已有分析';
                     showExistingBtn.setAttribute('onclick', 'loadSmartSearchAnalysisResults(); closeModal();');
                 }
             } else {
-                // 还有未分析的论文
+                // 还有未分析的论文或没有分析结果
                 if (startBtn) {
-                    startBtn.disabled = false;
-                    startBtn.textContent = '开始分析';
+                    if (data.total > data.completed && data.total > 0) {
+                        startBtn.disabled = false;
+                        startBtn.textContent = '开始分析';
+                    } else {
+                        startBtn.disabled = true;
+                        startBtn.textContent = '无需分析';
+                    }
                 }
                 if (showExistingBtn) {
                     if (data.completed > 0) {
-                        // 有部分已分析，显示"加载已有分析"按钮
+                        // 有部分已分析，显示并启用"加载已有分析"按钮
                         showExistingBtn.style.display = 'inline-block';
+                        showExistingBtn.style.visibility = 'visible';
                         showExistingBtn.disabled = false;
                         showExistingBtn.textContent = '加载已有分析';
                         showExistingBtn.setAttribute('onclick', 'loadSmartSearchAnalysisResults(); closeModal();');
                     } else {
                         // 没有已分析的，隐藏按钮
                         showExistingBtn.style.display = 'none';
+                        showExistingBtn.style.visibility = 'hidden';
+                        showExistingBtn.disabled = true;
                     }
                 }
             }
@@ -794,13 +804,19 @@ async function analyzeSmartSearchResults() {
     } catch (error) {
         console.error('检查智能搜索分析状态失败:', error);
         showAlert('检查分析状态失败: ' + error.message, 'error');
+        
+        // 发生错误时仍然启用主分析按钮，让用户可以重试
+        const mainAnalyzeBtn = document.getElementById('smartAnalyzeBtn');
+        if (mainAnalyzeBtn) {
+            mainAnalyzeBtn.disabled = false;
+        }
     } finally {
         // 重置分析状态
         smartSearchState.isAnalyzing = false;
         
         const analyzeBtn = document.getElementById('smartAnalyzeBtn');
         if (analyzeBtn) {
-            analyzeBtn.disabled = false;
+            // 不要在这里重新启用按钮，因为状态检查逻辑已经处理了按钮状态
             analyzeBtn.textContent = '📊 分析';
         }
     }
@@ -867,8 +883,6 @@ async function startSmartSearchAnalysis() {
     
     const testCountInt = testCount === '' ? null : parseInt(testCount);
     
-    console.log('🚀 开始智能搜索分析，范围:', selectedRange, '论文数:', paperIds.length);
-    
     // 更新URL状态以反映智能搜索分析状态
     const smartSearchInput = document.getElementById('smartSearchInput');
     if (smartSearchInput && smartSearchInput.value.trim()) {
@@ -934,7 +948,6 @@ async function startSmartSearchAnalysis() {
         
         // 检查是否所有论文都已分析完成
         if (data.all_analyzed) {
-            console.log('🎉 [智能搜索分析] 所有论文已分析完成，直接加载结果', data);
             
             // 隐藏进度界面
             document.getElementById('progressContainer').style.display = 'none';
@@ -958,19 +971,9 @@ async function startSmartSearchAnalysis() {
         
         // 使用后端返回的真实task_id
         const taskId = data.task_id;
-        console.log('🔍 [智能搜索分析] 后端返回的task_id:', taskId, '类型:', typeof taskId);
         
         // 存储当前分析任务ID
         smartSearchState.currentAnalysisTask = taskId;
-        
-        // 开始SSE连接，复用现有的进度监听机制
-        console.log('🔗 [智能搜索分析] 调用SSE连接，参数:', {
-            date: '',
-            category: '',
-            testCount: testCountInt,
-            range: selectedRange,
-            taskId: taskId
-        });
         startSSEConnection('', '', testCountInt, selectedRange, taskId);
         startProgressFallbackCheck('', '', taskId);
         
@@ -1007,18 +1010,14 @@ async function startSmartSearchAnalysis() {
  */
 async function loadSmartSearchAnalysisResults() {
     if (!smartSearchState.currentResults || !smartSearchState.currentResults.articles) {
-        console.error('❌ [智能搜索] 无法加载分析结果：缺少论文数据');
         return;
     }
     
     const paperIds = smartSearchState.currentResults.articles.map(article => article.paper_id).filter(id => id);
     
     if (paperIds.length === 0) {
-        console.error('❌ [智能搜索] 无法加载分析结果：无有效的paper_ids');
         return;
     }
-    
-    console.log('🔍 [智能搜索] 开始加载分析结果，paper_ids:', paperIds);
     
     try {
         showLoading();
@@ -1042,8 +1041,6 @@ async function loadSmartSearchAnalysisResults() {
         if (data.error) {
             throw new Error(data.error);
         }
-        
-        console.log('📊 [智能搜索] 分析结果加载成功:', data);
         
         // 使用与普通分析一致的表格显示函数
         if (typeof displayAnalysisResults === 'function') {
@@ -1083,8 +1080,6 @@ async function loadSmartSearchAnalysisResults() {
         
         // 清理状态
         smartSearchState.currentAnalysisTask = null;
-        
-        console.log('✅ [智能搜索] 分析结果显示完成');
         
     } catch (error) {
         console.error('❌ [智能搜索] 加载分析结果失败:', error);
@@ -1423,7 +1418,6 @@ async function fetchSmartSearchAffiliations(paperId, link, index) {
         // 显示全局loading
         showOverlayLoading();
         
-        console.log(`智能搜索开始获取作者机构: paper_id=${paperId}, link=${link}`);
         const startTime = Date.now();
         
         const resp = await fetch('/api/fetch_affiliations', {
@@ -1435,7 +1429,6 @@ async function fetchSmartSearchAffiliations(paperId, link, index) {
         const data = await resp.json();
         const endTime = Date.now();
         const elapsedSeconds = Math.round((endTime - startTime)/1000);
-        console.log(`智能搜索获取作者机构完成，耗时: ${endTime - startTime}ms`, data);
         
         if (resp.ok) {
             if (data.success) {
@@ -1444,7 +1437,6 @@ async function fetchSmartSearchAffiliations(paperId, link, index) {
                 showSuccess(`已更新作者机构 (耗时 ${elapsedSeconds}s)`);
             } else {
                 // API调用成功但未获取到机构信息
-                console.warn('智能搜索未获取到机构信息:', data.error);
                 updateSmartSearchSingleRowAffiliation(index, []); // 显示空机构信息
                 showError(data.error || '未获取到机构信息');
             }
@@ -1454,7 +1446,6 @@ async function fetchSmartSearchAffiliations(paperId, link, index) {
         }
     } catch (e) {
         showError('网络错误，获取作者机构失败');
-        console.error(e);
     } finally {
         // 恢复按钮状态
         const buttonElement = document.querySelector(buttonSelector);
@@ -1513,7 +1504,6 @@ function updateSmartSearchSingleRowAffiliation(rowIndex, affiliations) {
  * 清空上一次分析结果的状态显示
  */
 function clearPreviousAnalysisResults() {
-    console.log('🧹 清空上一次分析结果状态');
     
     // 清空进度条
     const progressBarFill = document.getElementById('progressBarFill');
