@@ -169,7 +169,7 @@ def fetch_arxiv_papers_batch(arxiv_ids: List[str], timeout: int = 30) -> Dict[st
     params = {
         'id_list': id_list,
         'start': 0,
-        'max_results': min(len(arxiv_ids), 100)  # arXiv建议不超过100个
+        'max_results': min(len(arxiv_ids), 500)  # 扩展到500篇论文
     }
     
     url = base_url + urllib.parse.urlencode(params)
