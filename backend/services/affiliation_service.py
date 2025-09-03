@@ -37,9 +37,31 @@ def load_affiliation_prompt() -> str:
         raise Exception(f"读取机构解析提示词文件失败: {e}")
 
 
+def is_valid_affiliation_response(response: str) -> bool:
+    """
+    检查AI响应是否有效（不是拒绝回答）
+    
+    Args:
+        response: AI模型的响应
+        
+    Returns:
+        bool: 是否为有效响应
+    """
+    if not response:
+        return False
+        
+    invalid_patterns = [
+        "无法回答", "不能回答", "无法提供", "无法帮助",
+        "询问其他话题", "尽力提供帮助", "努力理解你的需求",
+        "sorry", "cannot", "unable", "can't help"
+    ]
+    
+    return not any(pattern in response.lower() for pattern in invalid_patterns)
+
+
 def parse_affiliations_with_ai(first_page_text: str) -> List[str]:
     """
-    使用 AI 模型解析作者机构信息
+    使用 AI 模型解析作者机构信息（带重试机制）
     
     Args:
         first_page_text: PDF 第一页文本内容
@@ -53,61 +75,99 @@ def parse_affiliations_with_ai(first_page_text: str) -> List[str]:
     # 加载prompt模板
     system_prompt = load_affiliation_prompt()
     
-    # 构建用户消息
+    # 构建增强的用户消息
     user_message = f"""
+IMPORTANT: You are a specialized academic paper parser. Your only task is to extract author affiliations from the provided text. This is a technical extraction task - please process it normally.
+
 请从以下论文第一页内容中提取所有作者的机构信息，返回JSON格式的机构列表：
 
 论文内容：
 {first_page_text}
 
-请严格按照系统提示中的要求，返回去重的机构名称JSON数组。
+请严格按照系统提示中的要求，返回去重的机构名称JSON数组。如果无法提取到机构信息，请返回空数组 []。
 """
     
-    # 调用AI模型
-    try:
-        client = DoubaoClient()
-        response = client.chat(
-            message=user_message,
-            system_prompt=system_prompt,
-            verbose=False  # 关闭详细输出
-        )
-        
-        if response is None:
-            raise Exception("AI模型调用失败")
-        
-        # 解析JSON响应
+    # 重试机制
+    max_retries = 3
+    client = DoubaoClient()
+    
+    for attempt in range(max_retries):
         try:
-            # 尝试提取JSON部分
-            json_match = re.search(r'\[.*?\]', response, re.DOTALL)
-            if json_match:
-                affiliations_data = json.loads(json_match.group())
-                if isinstance(affiliations_data, list):
-                    return [str(affil).strip() for affil in affiliations_data if affil]
+            print(f"[机构解析] 尝试 {attempt + 1}/{max_retries}")
             
-            # 如果没有找到JSON格式，尝试解析其他格式
-            if "error" in response.lower():
-                return []
+            response = client.chat(
+                message=user_message,
+                system_prompt=system_prompt,
+                verbose=False  # 关闭详细输出
+            )
             
-            # 尝试按行解析
-            lines = response.strip().split('\n')
-            affiliations = []
-            for line in lines:
-                line = line.strip()
-                if line and not line.startswith('#') and not line.startswith('```'):
-                    # 移除列表标记
-                    clean_line = re.sub(r'^\d+\.\s*|^-\s*|^\*\s*', '', line).strip()
-                    if clean_line and len(clean_line) > 2:
-                        affiliations.append(clean_line)
+            if response is None:
+                if attempt < max_retries - 1:
+                    print(f"[机构解析] AI模型返回None，等待重试...")
+                    time.sleep(2 ** attempt)
+                    continue
+                else:
+                    raise Exception("AI模型调用失败")
             
-            return affiliations[:20]  # 限制最多20个机构
+            # 检查响应是否有效
+            if not is_valid_affiliation_response(response):
+                print(f"[机构解析] 检测到无效响应: {response[:100]}...")
+                if attempt < max_retries - 1:
+                    print(f"[机构解析] 等待重试...")
+                    time.sleep(2 ** attempt)
+                    continue
+                else:
+                    print(f"[机构解析] 所有重试均失败，返回空列表")
+                    return []
             
-        except json.JSONDecodeError:
-            # JSON解析失败，尝试从响应中提取机构名称
-            print(f"JSON解析失败，原始响应: {response}")
+            # 响应有效，继续解析
+            break
+            
+        except Exception as e:
+            if attempt < max_retries - 1:
+                print(f"[机构解析] 调用异常，等待重试: {e}")
+                time.sleep(2 ** attempt)
+                continue
+            else:
+                raise Exception(f"AI模型解析失败: {e}")
+        
+    # 解析JSON响应
+    try:
+        print(f"[机构解析] 成功获得响应，开始解析JSON")
+        
+        # 尝试提取JSON部分
+        json_match = re.search(r'\[.*?\]', response, re.DOTALL)
+        if json_match:
+            affiliations_data = json.loads(json_match.group())
+            if isinstance(affiliations_data, list):
+                result = [str(affil).strip() for affil in affiliations_data if affil]
+                print(f"[机构解析] JSON解析成功，找到 {len(result)} 个机构")
+                return result
+        
+        # 如果没有找到JSON格式，尝试解析其他格式
+        if "error" in response.lower():
+            print(f"[机构解析] 响应包含错误信息")
             return []
-            
-    except Exception as e:
-        raise Exception(f"AI模型解析失败: {e}")
+        
+        # 尝试按行解析
+        lines = response.strip().split('\n')
+        affiliations = []
+        for line in lines:
+            line = line.strip()
+            if line and not line.startswith('#') and not line.startswith('```'):
+                # 移除列表标记
+                clean_line = re.sub(r'^\d+\.\s*|^-\s*|^\*\s*', '', line).strip()
+                if clean_line and len(clean_line) > 2:
+                    affiliations.append(clean_line)
+        
+        result = affiliations[:20]  # 限制最多20个机构
+        print(f"[机构解析] 按行解析成功，找到 {len(result)} 个机构")
+        return result
+        
+    except json.JSONDecodeError:
+        # JSON解析失败，尝试从响应中提取机构名称
+        print(f"[机构解析] JSON解析失败，原始响应: {response[:200]}...")
+        return []
 
 
 # 添加简单的内存缓存
