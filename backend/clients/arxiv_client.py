@@ -5,22 +5,25 @@ arXiv 客户端
 负责与 arXiv 服务的网络交互，包括 PDF 下载等
 """
 
+import os
+import tempfile
 import requests
 import time
-from typing import Tuple
+from typing import Tuple, Union
 
 from backend.utils.pdf_parser import extract_arxiv_id_from_url
 
 
-def download_arxiv_pdf(arxiv_url: str) -> bytes:
+def download_arxiv_pdf(arxiv_url: str, *, as_bytes: bool = True) -> Union[bytes, str]:
     """
     从 arXiv URL 下载 PDF 文件（高度优化性能）
     
     Args:
         arxiv_url: arXiv 论文链接
+        as_bytes: 是否以 bytes 返回内容；为 False 时返回临时文件路径
         
     Returns:
-        bytes: PDF 文件内容
+        bytes 或 str: PDF 文件内容或临时文件路径
         
     Raises:
         Exception: 下载失败时抛出异常
@@ -58,18 +61,43 @@ def download_arxiv_pdf(arxiv_url: str) -> bytes:
         response.raise_for_status()
         
         # 3. 分块下载（无大小限制）
-        pdf_content = bytearray()
+        downloaded_bytes = 0
+        temp_path = None
         
-        for chunk in response.iter_content(chunk_size=8192):  # 8KB块
-            if chunk:
-                pdf_content.extend(chunk)
+        if as_bytes:
+            pdf_content = bytearray()
+            for chunk in response.iter_content(chunk_size=8192):  # 8KB块
+                if chunk:
+                    pdf_content.extend(chunk)
+            downloaded_bytes = len(pdf_content)
+        else:
+            try:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+                    temp_path = tmp_file.name
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            tmp_file.write(chunk)
+                            downloaded_bytes += len(chunk)
+                    tmp_file.flush()
+            except Exception:
+                # 发生异常时尽量清理已创建的临时文件
+                if temp_path and os.path.exists(temp_path):
+                    try:
+                        os.remove(temp_path)
+                    except OSError:
+                        pass
+                raise
+        
+        response.close()
     
         end_time = time.time()
-        size_mb = len(pdf_content) / (1024 * 1024)
+        size_mb = downloaded_bytes / (1024 * 1024)
         speed_mbps = size_mb / (end_time - start_time) if (end_time - start_time) > 0 else 0
         print(f"[PDF下载] 完成，大小: {size_mb:.1f}MB，耗时: {end_time - start_time:.2f}s (速度: {speed_mbps:.1f}MB/s)")
         
-        return bytes(pdf_content)
+        if as_bytes:
+            return bytes(pdf_content)
+        return temp_path
 
 
 def get_paper_metadata(arxiv_id: str) -> dict:

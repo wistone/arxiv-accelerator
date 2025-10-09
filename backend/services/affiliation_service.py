@@ -13,7 +13,7 @@ from typing import List, Optional, Callable
 
 from backend.clients.ai_client import DoubaoClient
 from backend.clients.arxiv_client import download_arxiv_pdf
-from backend.utils.pdf_parser import extract_first_page_text
+from backend.utils.pdf_parser import extract_first_page_text_from_file
 
 
 def load_affiliation_prompt() -> str:
@@ -210,6 +210,8 @@ def get_author_affiliations(
         print(f"[机构获取] 🚀 使用缓存结果，机构数: {len(cached_result)}")
         return cached_result
     
+    pdf_path = None
+    
     try:
         # 调用进度回调
         if progress_callback:
@@ -217,7 +219,7 @@ def get_author_affiliations(
         
         # 1. 下载PDF
         step_start = time.time()
-        pdf_content = download_arxiv_pdf(arxiv_url)
+        pdf_path = download_arxiv_pdf(arxiv_url, as_bytes=False)
         download_time = time.time() - step_start
         print(f"[机构获取] PDF下载完成，耗时: {download_time:.2f}s")
         
@@ -227,7 +229,7 @@ def get_author_affiliations(
         
         # 2. 提取第一页文本（优化：只提取前2000字符用于机构识别）
         step_start = time.time()
-        first_page_text = extract_first_page_text(pdf_content, max_chars=2000)
+        first_page_text = extract_first_page_text_from_file(pdf_path, max_chars=2000)
         
         if len(first_page_text) >= 2000:
             print(f"[机构获取] ✂️ 文本已截断至2000字符以优化处理速度")
@@ -278,3 +280,10 @@ def get_author_affiliations(
             print(f"[机构获取] 🚫 失败结果未缓存（允许重试）")
             
         raise e
+    finally:
+        if pdf_path and os.path.exists(pdf_path):
+            try:
+                os.remove(pdf_path)
+                print(f"[机构获取] 🧹 临时PDF已删除")
+            except OSError as cleanup_error:
+                print(f"[机构获取] ⚠️ 清理临时PDF失败: {cleanup_error}")

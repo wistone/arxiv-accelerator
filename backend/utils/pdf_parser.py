@@ -7,7 +7,7 @@ PDF 解析工具
 
 import io
 import re
-from typing import List
+from typing import BinaryIO, List
 from pdfminer.high_level import extract_text_to_fp
 from pdfminer.layout import LAParams
 
@@ -45,20 +45,7 @@ def extract_arxiv_id_from_url(url: str) -> str:
     raise ValueError(f"无法从URL中提取arxiv_id: {url}")
 
 
-def extract_first_page_text(pdf_content: bytes, max_chars: int = 2000) -> str:
-    """
-    提取 PDF 第一页的文本内容（优化性能）
-    
-    Args:
-        pdf_content: PDF 文件内容
-        max_chars: 最大字符数
-        
-    Returns:
-        str: 提取的文本内容
-        
-    Raises:
-        Exception: PDF解析失败时抛出异常
-    """
+def _extract_first_page_text_from_stream(pdf_stream: BinaryIO, max_chars: int) -> str:
     # 优化LAParams参数以提高速度
     laparams = LAParams(
         word_margin=0.1,
@@ -75,13 +62,13 @@ def extract_first_page_text(pdf_content: bytes, max_chars: int = 2000) -> str:
         logging.getLogger('pdfminer').setLevel(logging.ERROR)  # 抑制警告信息
         
         extract_text_to_fp(
-            io.BytesIO(pdf_content),
+            pdf_stream,
             output,
             laparams=laparams,
             maxpages=1,  # 只提取第一页
             page_numbers=[0],
             codec='utf-8',
-            caching=True,  # 启用缓存
+            caching=False,  # 关闭缓存以减少内存占用
             check_extractable=True
         )
         
@@ -93,6 +80,44 @@ def extract_first_page_text(pdf_content: bytes, max_chars: int = 2000) -> str:
             
         return text
         
+    except Exception as e:
+        raise Exception(f"PDF文本提取失败: {e}")
+    finally:
+        output.close()
+
+
+def extract_first_page_text(pdf_content: bytes, max_chars: int = 2000) -> str:
+    """
+    提取 PDF 第一页的文本内容（优化性能）
+    
+    Args:
+        pdf_content: PDF 文件内容
+        max_chars: 最大字符数
+        
+    Returns:
+        str: 提取的文本内容
+        
+    Raises:
+        Exception: PDF解析失败时抛出异常
+    """
+    with io.BytesIO(pdf_content) as pdf_stream:
+        return _extract_first_page_text_from_stream(pdf_stream, max_chars)
+
+
+def extract_first_page_text_from_file(pdf_path: str, max_chars: int = 2000) -> str:
+    """
+    从 PDF 文件提取第一页文本内容
+    
+    Args:
+        pdf_path: PDF 文件路径
+        max_chars: 最大字符数
+    
+    Returns:
+        str: 提取的文本内容
+    """
+    try:
+        with open(pdf_path, 'rb') as pdf_stream:
+            return _extract_first_page_text_from_stream(pdf_stream, max_chars)
     except Exception as e:
         raise Exception(f"PDF文本提取失败: {e}")
 
