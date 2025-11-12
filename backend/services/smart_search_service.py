@@ -9,6 +9,7 @@ import urllib.parse
 from typing import List, Dict, Any, Tuple
 import xml.etree.ElementTree as ET
 from datetime import datetime
+import time
 from ..db import repo as db_repo
 
 def extract_arxiv_ids(text: str) -> List[str]:
@@ -142,14 +143,16 @@ def parse_arxiv_xml(xml_content: str) -> Dict[str, Any]:
         print(f"解析XML失败: {e}")
         return None
 
-def fetch_arxiv_papers_batch(arxiv_ids: List[str], timeout: int = 30) -> Dict[str, Any]:
+def fetch_arxiv_papers_batch(arxiv_ids: List[str], timeout: int = 30, batch_size: int = 50, delay: float = 3.5) -> Dict[str, Any]:
     """
-    通过arXiv API批量获取多篇论文详细信息
-    
+    通过arXiv API批量获取多篇论文详细信息，支持分批请求和延迟
+
     Args:
         arxiv_ids: arXiv论文ID列表
-        timeout: 请求超时时间（秒）
-        
+        timeout: 单次请求超时时间（秒）
+        batch_size: 每批次请求的论文数量（默认50，符合arXiv限制）
+        delay: 批次间延迟时间（秒，默认3.5秒，符合arXiv要求）
+
     Returns:
         包含状态和内容的字典
     """
@@ -161,38 +164,99 @@ def fetch_arxiv_papers_batch(arxiv_ids: List[str], timeout: int = 30) -> Dict[st
             'not_exist_ids': [],
             'error_ids': []
         }
-    
-    # 构建批量API URL
-    base_url = "http://export.arxiv.org/api/query?"
-    # 使用id_list参数进行批量查询
-    id_list = ','.join(arxiv_ids)
-    params = {
-        'id_list': id_list,
-        'start': 0,
-        'max_results': min(len(arxiv_ids), 500)  # 扩展到500篇论文
+
+    total_ids = len(arxiv_ids)
+    print(f"🚀 [批量查询] 开始批量获取 {total_ids} 篇论文信息")
+
+    # 分批处理
+    all_found_papers = []
+    all_not_exist_ids = []
+    all_error_ids = []
+
+    # 计算批次数
+    num_batches = (total_ids + batch_size - 1) // batch_size
+    print(f"📦 [批量查询] 将分 {num_batches} 批处理，每批 {batch_size} 篇，批次间延迟 {delay}s")
+
+    for batch_num in range(num_batches):
+        start_idx = batch_num * batch_size
+        end_idx = min(start_idx + batch_size, total_ids)
+        batch_ids = arxiv_ids[start_idx:end_idx]
+
+        print(f"📡 [批次 {batch_num + 1}/{num_batches}] 请求论文 {start_idx + 1}-{end_idx} ({len(batch_ids)} 篇)")
+
+        # 重试机制：最多重试3次，使用指数退避
+        max_retries = 3
+        retry_count = 0
+        batch_success = False
+
+        while retry_count <= max_retries and not batch_success:
+            try:
+                # 构建批量API URL
+                base_url = "http://export.arxiv.org/api/query?"
+                id_list = ','.join(batch_ids)
+                params = {
+                    'id_list': id_list,
+                    'start': 0,
+                    'max_results': len(batch_ids)
+                }
+
+                url = base_url + urllib.parse.urlencode(params)
+
+                # 发送批量请求
+                with urllib.request.urlopen(url, timeout=timeout) as response:
+                    xml_content = response.read().decode('utf-8')
+
+                # 解析XML获取论文信息
+                batch_result = parse_arxiv_batch_xml(xml_content, batch_ids)
+
+                if batch_result['status'] == 'success':
+                    all_found_papers.extend(batch_result['found_papers'])
+                    all_not_exist_ids.extend(batch_result['not_exist_ids'])
+                    print(f"✅ [批次 {batch_num + 1}/{num_batches}] 成功: {len(batch_result['found_papers'])} 篇，未找到: {len(batch_result['not_exist_ids'])} 篇")
+                    batch_success = True
+                else:
+                    all_error_ids.extend([{'arxiv_id': id, 'error': batch_result.get('message', '未知错误')} for id in batch_ids])
+                    print(f"❌ [批次 {batch_num + 1}/{num_batches}] 失败: {batch_result.get('message', '未知错误')}")
+                    batch_success = True  # 解析失败也算完成，不再重试
+
+                # 批次间延迟（最后一批不需要延迟）
+                if batch_success and batch_num < num_batches - 1:
+                    print(f"⏸️  [批次延迟] 等待 {delay}s 后继续...")
+                    time.sleep(delay)
+
+            except Exception as e:
+                error_msg = str(e)
+                retry_count += 1
+
+                # 判断是否应该重试
+                is_rate_limit = '429' in error_msg or 'Too Many Requests' in error_msg
+                is_timeout = 'timed out' in error_msg.lower()
+                should_retry = (is_rate_limit or is_timeout) and retry_count <= max_retries
+
+                if should_retry:
+                    # 指数退避：基础延迟 * 2^重试次数
+                    retry_delay = delay * (2 ** retry_count)
+                    print(f"⚠️  [批次 {batch_num + 1}/{num_batches}] 第 {retry_count} 次失败: {error_msg}")
+                    print(f"🔄 [重试机制] 将在 {retry_delay:.1f}s 后进行第 {retry_count + 1} 次重试...")
+                    time.sleep(retry_delay)
+                else:
+                    # 不再重试，记录错误
+                    print(f"❌ [批次 {batch_num + 1}/{num_batches}] 最终失败: {error_msg} (重试 {retry_count - 1} 次)")
+                    all_error_ids.extend([{'arxiv_id': id, 'error': error_msg} for id in batch_ids])
+                    batch_success = True  # 标记为完成，继续下一批
+
+                    # 失败后等待一段时间
+                    time.sleep(delay)
+
+    # 汇总结果
+    print(f"🎯 [批量查询] 全部完成 - 成功: {len(all_found_papers)} 篇，未找到: {len(all_not_exist_ids)} 篇，错误: {len(all_error_ids)} 篇")
+
+    return {
+        'status': 'success',
+        'found_papers': all_found_papers,
+        'not_exist_ids': all_not_exist_ids,
+        'error_ids': all_error_ids
     }
-    
-    url = base_url + urllib.parse.urlencode(params)
-    print(f"🚀 [批量查询] 开始批量获取 {len(arxiv_ids)} 篇论文信息")
-    print(f"📡 [API请求] {url}")
-    
-    try:
-        # 发送批量请求
-        with urllib.request.urlopen(url, timeout=timeout) as response:
-            xml_content = response.read().decode('utf-8')
-        
-        # 解析XML获取所有论文信息
-        return parse_arxiv_batch_xml(xml_content, arxiv_ids)
-        
-    except Exception as e:
-        print(f"❌ [批量查询] 批量请求失败: {e}")
-        return {
-            'status': 'error',
-            'message': str(e),
-            'found_papers': [],
-            'not_exist_ids': [],
-            'error_ids': [{'arxiv_id': id, 'error': str(e)} for id in arxiv_ids]
-        }
 
 def parse_arxiv_batch_xml(xml_content: str, requested_ids: List[str]) -> Dict[str, Any]:
     """
